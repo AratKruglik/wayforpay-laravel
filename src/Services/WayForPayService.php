@@ -32,6 +32,13 @@ class WayForPayService implements WayForPayInterface
 
     public function purchase(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): string
     {
+        $formData = $this->getPurchaseFormData($transaction, $returnUrl, $serviceUrl);
+
+        return $this->generateAutoSubmitForm($formData);
+    }
+
+    public function getPurchaseFormData(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array
+    {
         $data = $this->prepareTransactionData($transaction);
         $signature = $this->signatureGenerator->generateForPurchase($data);
 
@@ -45,15 +52,50 @@ class WayForPayService implements WayForPayInterface
         if ($transaction->client) {
             $payload = array_merge($payload, $transaction->client->toArray());
         }
-        
-        if ($returnUrl) $payload['returnUrl'] = $returnUrl;
-        if ($serviceUrl) $payload['serviceUrl'] = $serviceUrl;
 
-        $response = $this->http->asJson()
-            ->timeout($this->timeout)
-            ->post('https://secure.wayforpay.com/pay', $payload);
+        if ($returnUrl) {
+            $payload['returnUrl'] = $returnUrl;
+        }
+        if ($serviceUrl) {
+            $payload['serviceUrl'] = $serviceUrl;
+        }
 
-        return $this->handleResponse($response, 'url');
+        return $payload;
+    }
+
+    private function generateAutoSubmitForm(array $formData): string
+    {
+        $inputs = '';
+
+        foreach ($formData as $key => $value) {
+            if (is_array($value)) {
+                foreach ($value as $item) {
+                    $escapedValue = htmlspecialchars((string) $item, ENT_QUOTES, 'UTF-8');
+                    $inputs .= "<input type=\"hidden\" name=\"{$key}[]\" value=\"{$escapedValue}\" />\n";
+                }
+            } else {
+                $escapedValue = htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+                $inputs .= "<input type=\"hidden\" name=\"{$key}\" value=\"{$escapedValue}\" />\n";
+            }
+        }
+
+        return <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Redirecting to payment...</title>
+</head>
+<body>
+    <form id="wayforpay_form" method="POST" action="https://secure.wayforpay.com/pay" accept-charset="utf-8">
+        {$inputs}
+    </form>
+    <script type="text/javascript">
+        document.getElementById('wayforpay_form').submit();
+    </script>
+</body>
+</html>
+HTML;
     }
 
     public function createInvoice(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array

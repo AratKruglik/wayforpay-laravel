@@ -13,7 +13,7 @@ beforeEach(function () {
     Config::set('wayforpay.secret_key', 'secret');
 });
 
-test('service throws exception on api failure', function () {
+test('service throws exception on api failure for API methods', function () {
     Http::fake([
         '*' => Http::response('Server Error', 500),
     ]);
@@ -26,28 +26,11 @@ test('service throws exception on api failure', function () {
     $transaction = new Transaction('FAIL', 10.0, 'UAH', time());
     $transaction->addProduct(new Product('Item', 10.0, 1));
 
-    expect(fn() => $service->purchase($transaction))
-        ->toThrow(WayForPayException::class, 'Request failed');
+    expect(fn() => $service->checkStatus('ORDER123'))
+        ->toThrow(WayForPayException::class, 'API Request failed');
 });
 
-test('service throws exception if no url returned', function () {
-    Http::fake([
-        '*' => Http::response(['status' => 'error'], 200),
-    ]);
-
-    $service = new WayForPayService(
-        new SignatureGenerator('secret'),
-        Http::getFacadeRoot()
-    );
-
-    $transaction = new Transaction('FAIL_URL', 10.0, 'UAH', time());
-    $transaction->addProduct(new Product('Item', 10.0, 1));
-
-    expect(fn() => $service->purchase($transaction))
-        ->toThrow(WayForPayException::class, 'Failed to retrieve url');
-});
-
-test('service throws exception on business error code', function () {
+test('service throws exception on business error code for API methods', function () {
     Http::fake([
         '*' => Http::response([
             'reasonCode' => 1101,
@@ -64,7 +47,7 @@ test('service throws exception on business error code', function () {
     $transaction->addProduct(new Product('Item', 10.0, 1));
 
     try {
-        $service->purchase($transaction);
+        $service->checkStatus('ORDER123');
         $this->fail('Exception was not thrown');
     } catch (WayForPayException $e) {
         expect($e->getMessage())->toBe('Declined by Bank')

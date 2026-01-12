@@ -56,7 +56,7 @@ WAYFORPAY_MERCHANT_DOMAIN=your_domain.com
 
 ### 1. Purchase (Widget)
 
-Generate a payment URL to redirect the user to the secure WayForPay checkout page.
+Generate a self-submitting HTML form that redirects the user to the secure WayForPay checkout page.
 
 ```php
 use AratKruglik\WayForPay\Facades\WayForPay;
@@ -82,10 +82,59 @@ $transaction = new Transaction(
 
 $transaction->addProduct(new Product('T-Shirt', 100.50, 1));
 
-// Get payment URL
-$url = WayForPay::purchase($transaction, returnUrl: 'https://myshop.com/thank-you');
+// Returns HTML with auto-submitting form
+$html = WayForPay::purchase(
+    $transaction,
+    returnUrl: 'https://myshop.com/payment/success',
+    serviceUrl: 'https://myshop.com/api/wayforpay/callback'
+);
 
-return redirect($url);
+return response($html);
+```
+
+#### Custom Form Rendering
+
+If you need to render the form yourself (e.g., for SPA applications):
+
+```php
+// Get raw form data as an array
+$formData = WayForPay::getPurchaseFormData($transaction, $returnUrl, $serviceUrl);
+
+// Pass to your frontend
+return response()->json([
+    'form_action' => 'https://secure.wayforpay.com/pay',
+    'form_data' => $formData
+]);
+```
+
+Then in your JavaScript:
+
+```javascript
+// Create and submit form programmatically
+const form = document.createElement('form');
+form.method = 'POST';
+form.action = 'https://secure.wayforpay.com/pay';
+
+Object.entries(formData).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+        value.forEach(item => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = `${key}[]`;
+            input.value = item;
+            form.appendChild(input);
+        });
+    } else {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
+    }
+});
+
+document.body.appendChild(form);
+form.submit();
 ```
 
 ### 2. Invoices
@@ -270,14 +319,6 @@ Run the test suite with Pest:
 
 ```bash
 vendor/bin/pest
-```
-
-### Mutation Testing
-
-Ensure you have Xdebug or PCOV installed and enabled.
-
-```bash
-vendor/bin/pest --mutate
 ```
 
 ---

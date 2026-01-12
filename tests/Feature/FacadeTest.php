@@ -11,13 +11,13 @@ beforeEach(function () {
 });
 
 test('facade resolves and calls service', function () {
-    Http::fake([
-        'secure.wayforpay.com/pay' => Http::response(['url' => 'http://example.com'], 200),
-    ]);
-
     $transaction = new Transaction('ORD_FACADE', 10.0, 'UAH', time());
-    
-    $url = WayForPay::purchase($transaction);
-    
-    expect($url)->toBe('http://example.com');
+
+    $html = WayForPay::purchase($transaction);
+
+    expect($html)->toContain('<!DOCTYPE html>')
+        ->and($html)->toContain('<form id="wayforpay_form"')
+        ->and($html)->toContain('action="https://secure.wayforpay.com/pay"')
+        ->and($html)->toContain('name="merchantAccount"')
+        ->and($html)->toContain('value="test_merch_n1"');
 });

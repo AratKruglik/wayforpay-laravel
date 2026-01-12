@@ -14,25 +14,14 @@ beforeEach(function () {
     Config::set('wayforpay.secret_key', 'flk3409refn54t54t*FNJRET');
 });
 
-test('purchase with full options sends correct payload', function () {
-    Http::fake(function ($request) {
-        $data = $request->data();
-        
-        expect($data['merchantAccount'])->toBe('test_merch_n1')
-            ->and($data['paymentSystems'])->toBe('card;googlePay')
-            ->and($data['regularMode'])->toBe('monthly')
-            ->and($data['clientFirstName'])->toBe('John');
-            
-        return Http::response(['url' => 'http://pay.com'], 200);
-    });
-
+test('purchase with full options generates correct form data', function () {
     $service = new WayForPayService(
         new SignatureGenerator('flk3409refn54t54t*FNJRET'),
         Http::getFacadeRoot()
     );
 
     $client = new Client(nameFirst: 'John', email: 'john@doe.com');
-    
+
     $transaction = new Transaction(
         orderReference: 'FULL_ORD',
         amount: 500.0,
@@ -43,8 +32,16 @@ test('purchase with full options sends correct payload', function () {
         regularMode: 'monthly',
         regularAmount: 500.0
     );
-    
+
     $transaction->addProduct(new Product('Sub', 500.0, 1));
 
-    $service->purchase($transaction);
+    $formData = $service->getPurchaseFormData($transaction);
+
+    expect($formData['merchantAccount'])->toBe('test_merch_n1')
+        ->and($formData['paymentSystems'])->toBe('card;googlePay')
+        ->and($formData['regularMode'])->toBe('monthly')
+        ->and($formData['clientFirstName'])->toBe('John')
+        ->and($formData['regularAmount'])->toBe(500.0)
+        ->and($formData['amount'])->toBe(500.0)
+        ->and($formData['currency'])->toBe('UAH');
 });
