@@ -18,7 +18,7 @@ class SignatureGenerator
 
     public function verify(array $params, string $signature): bool
     {
-        return $this->generate($params) === $signature;
+        return hash_equals($this->generate($params), $signature);
     }
 
     /**

@@ -12,6 +12,7 @@ beforeEach(function () {
 
 test('facade resolves and calls service', function () {
     $transaction = new Transaction('ORD_FACADE', 10.0, 'UAH', time());
+    $transaction->addProduct(new \AratKruglik\WayForPay\Domain\Product('Test Item', 10.0, 1));
 
     $html = WayForPay::purchase($transaction);
 

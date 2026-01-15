@@ -11,6 +11,7 @@ use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\Transaction;
 use AratKruglik\WayForPay\Enums\ReasonCode;
 use AratKruglik\WayForPay\Exceptions\WayForPayException;
+use AratKruglik\WayForPay\Exceptions\SignatureMismatchException;
 
 class WayForPayService implements WayForPayInterface
 {
@@ -54,13 +55,27 @@ class WayForPayService implements WayForPayInterface
         }
 
         if ($returnUrl) {
-            $payload['returnUrl'] = $returnUrl;
+            $payload['returnUrl'] = $this->validateUrl($returnUrl, 'returnUrl');
         }
         if ($serviceUrl) {
-            $payload['serviceUrl'] = $serviceUrl;
+            $payload['serviceUrl'] = $this->validateUrl($serviceUrl, 'serviceUrl');
         }
 
         return $payload;
+    }
+
+    private function validateUrl(string $url, string $paramName): string
+    {
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new \InvalidArgumentException("Invalid {$paramName}: URL format is invalid");
+        }
+
+        $parsedUrl = parse_url($url);
+        if (!isset($parsedUrl['scheme']) || !in_array($parsedUrl['scheme'], ['http', 'https'], true)) {
+            throw new \InvalidArgumentException("Invalid {$paramName}: only HTTP/HTTPS URLs are allowed");
+        }
+
+        return $url;
     }
 
     private function generateAutoSubmitForm(array $formData): string
@@ -306,31 +321,39 @@ HTML;
 
     public function handleWebhook(array $data): array
     {
+        // Validate required fields
+        $requiredFields = ['merchantAccount', 'orderReference', 'transactionStatus', 'merchantSignature'];
+        foreach ($requiredFields as $field) {
+            if (!isset($data[$field]) || $data[$field] === '') {
+                throw new WayForPayException("Missing required webhook field: {$field}");
+            }
+        }
+
         $signatureParams = [
-            'merchantAccount' => $data['merchantAccount'] ?? '',
-            'orderReference' => $data['orderReference'] ?? '',
+            'merchantAccount' => $data['merchantAccount'],
+            'orderReference' => $data['orderReference'],
             'amount' => $data['amount'] ?? '',
             'currency' => $data['currency'] ?? '',
             'authCode' => $data['authCode'] ?? '',
             'cardPan' => $data['cardPan'] ?? '',
-            'transactionStatus' => $data['transactionStatus'] ?? '',
+            'transactionStatus' => $data['transactionStatus'],
             'reasonCode' => $data['reasonCode'] ?? '',
         ];
-        
+
         $expectedSignature = $this->signatureGenerator->generateForServiceUrl($signatureParams);
-        
-        if ($expectedSignature !== ($data['merchantSignature'] ?? '')) {
-             throw new WayForPayException('Invalid webhook signature');
+
+        if (!hash_equals($expectedSignature, $data['merchantSignature'])) {
+            throw new SignatureMismatchException('Invalid webhook signature');
         }
 
         \AratKruglik\WayForPay\Events\WayForPayCallbackReceived::dispatch($data);
 
         $time = time();
         $responseStatus = 'accept';
-        $orderRef = $data['orderReference'] ?? '';
-        
+        $orderRef = $data['orderReference'];
+
         $responseSignature = $this->signatureGenerator->generateResponseSignature($orderRef, $responseStatus, $time);
-        
+
         return [
             'orderReference' => $orderRef,
             'status' => $responseStatus,

@@ -60,13 +60,14 @@ test('webhook throws exception on invalid signature', function () {
         new SignatureGenerator('secret'),
         Http::getFacadeRoot()
     );
-    
+
     $data = [
         'merchantAccount' => 'test',
         'orderReference' => '123',
+        'transactionStatus' => 'Approved',
         'merchantSignature' => 'invalid_hash'
     ];
-    
+
     expect(fn() => $service->handleWebhook($data))
-        ->toThrow(WayForPayException::class, 'Invalid webhook signature');
+        ->toThrow(\AratKruglik\WayForPay\Exceptions\SignatureMismatchException::class, 'Invalid webhook signature');
 });
