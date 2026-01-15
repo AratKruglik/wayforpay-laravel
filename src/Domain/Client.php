@@ -22,22 +22,36 @@ readonly class Client
 
     private function validate(): void
     {
+        $this->validateEmail();
+        $this->validatePhone();
+        $this->validateStringLength($this->nameFirst, 'First name', 100);
+        $this->validateStringLength($this->nameLast, 'Last name', 100);
+        $this->validateCountry();
+    }
+
+    private function validateEmail(): void
+    {
         if ($this->email !== null && !filter_var($this->email, FILTER_VALIDATE_EMAIL)) {
             throw new InvalidArgumentException('Invalid email format');
         }
+    }
 
+    private function validatePhone(): void
+    {
         if ($this->phone !== null && !preg_match('/^\+?[\d\s\-()]{6,20}$/', $this->phone)) {
             throw new InvalidArgumentException('Invalid phone format');
         }
+    }
 
-        if ($this->nameFirst !== null && strlen($this->nameFirst) > 100) {
-            throw new InvalidArgumentException('First name is too long (max 100 characters)');
+    private function validateStringLength(?string $value, string $fieldName, int $maxLength): void
+    {
+        if ($value !== null && strlen($value) > $maxLength) {
+            throw new InvalidArgumentException("{$fieldName} is too long (max {$maxLength} characters)");
         }
+    }
 
-        if ($this->nameLast !== null && strlen($this->nameLast) > 100) {
-            throw new InvalidArgumentException('Last name is too long (max 100 characters)');
-        }
-
+    private function validateCountry(): void
+    {
         if ($this->country !== null && !preg_match('/^[A-Z]{2,3}$/', $this->country)) {
             throw new InvalidArgumentException('Country must be a 2-3 letter ISO code');
         }

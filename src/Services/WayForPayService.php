@@ -15,6 +15,9 @@ use AratKruglik\WayForPay\Exceptions\SignatureMismatchException;
 
 class WayForPayService implements WayForPayInterface
 {
+    private const WEBHOOK_REQUIRED_FIELDS = ['merchantAccount', 'orderReference', 'transactionStatus', 'merchantSignature'];
+    private const WEBHOOK_SIGNATURE_FIELDS = ['merchantAccount', 'orderReference', 'amount', 'currency', 'authCode', 'cardPan', 'transactionStatus', 'reasonCode'];
+
     private string $merchantAccount;
     private string $merchantDomain;
     private string $secretKey;
@@ -66,13 +69,14 @@ class WayForPayService implements WayForPayInterface
 
     private function validateUrl(string $url, string $paramName): string
     {
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new \InvalidArgumentException("Invalid {$paramName}: URL format is invalid");
-        }
-
         $parsedUrl = parse_url($url);
-        if (!isset($parsedUrl['scheme']) || !in_array($parsedUrl['scheme'], ['http', 'https'], true)) {
-            throw new \InvalidArgumentException("Invalid {$paramName}: only HTTP/HTTPS URLs are allowed");
+        $scheme = $parsedUrl['scheme'] ?? '';
+
+        $isValidUrl = filter_var($url, FILTER_VALIDATE_URL) !== false;
+        $isValidScheme = in_array($scheme, ['http', 'https'], true);
+
+        if (!$isValidUrl || !$isValidScheme) {
+            throw new \InvalidArgumentException("Invalid {$paramName}: must be a valid HTTP/HTTPS URL");
         }
 
         return $url;
@@ -171,9 +175,7 @@ HTML;
 
     private function prepareTransactionData(Transaction $transaction): array
     {
-        $productNames = array_map(fn($p) => $p->name, $transaction->getProducts());
-        $productCounts = array_map(fn($p) => $p->count, $transaction->getProducts());
-        $productPrices = array_map(fn($p) => $p->price, $transaction->getProducts());
+        $products = $transaction->getProducts();
 
         $data = [
             'merchantAccount' => $this->merchantAccount,
@@ -182,24 +184,25 @@ HTML;
             'orderDate' => $transaction->orderDate,
             'amount' => $transaction->amount,
             'currency' => $transaction->currency,
-            'productName' => $productNames,
-            'productCount' => $productCounts,
-            'productPrice' => $productPrices,
+            'productName' => array_map(fn($p) => $p->name, $products),
+            'productCount' => array_map(fn($p) => $p->count, $products),
+            'productPrice' => array_map(fn($p) => $p->price, $products),
         ];
 
-        if ($transaction->paymentSystems) $data['paymentSystems'] = $transaction->paymentSystems;
-        if ($transaction->defaultPaymentSystem) $data['defaultPaymentSystem'] = $transaction->defaultPaymentSystem;
-        if ($transaction->orderTimeout) $data['orderTimeout'] = $transaction->orderTimeout;
-        if ($transaction->orderLifetime) $data['orderLifetime'] = $transaction->orderLifetime;
-        
-        if ($transaction->regularMode) $data['regularMode'] = $transaction->regularMode;
-        if ($transaction->regularOn) $data['regularOn'] = $transaction->regularOn;
-        if ($transaction->dateNext) $data['dateNext'] = $transaction->dateNext;
-        if ($transaction->dateEnd) $data['dateEnd'] = $transaction->dateEnd;
-        if ($transaction->regularCount) $data['regularCount'] = $transaction->regularCount;
-        if ($transaction->regularAmount) $data['regularAmount'] = $transaction->regularAmount;
+        $optionalFields = [
+            'paymentSystems' => $transaction->paymentSystems,
+            'defaultPaymentSystem' => $transaction->defaultPaymentSystem,
+            'orderTimeout' => $transaction->orderTimeout,
+            'orderLifetime' => $transaction->orderLifetime,
+            'regularMode' => $transaction->regularMode,
+            'regularOn' => $transaction->regularOn,
+            'dateNext' => $transaction->dateNext,
+            'dateEnd' => $transaction->dateEnd,
+            'regularCount' => $transaction->regularCount,
+            'regularAmount' => $transaction->regularAmount,
+        ];
 
-        return $data;
+        return array_merge($data, array_filter($optionalFields, fn($value) => $value !== null));
     }
 
     public function checkStatus(string $orderReference): array
@@ -321,44 +324,48 @@ HTML;
 
     public function handleWebhook(array $data): array
     {
-        // Validate required fields
-        $requiredFields = ['merchantAccount', 'orderReference', 'transactionStatus', 'merchantSignature'];
-        foreach ($requiredFields as $field) {
+        $this->validateWebhookRequiredFields($data);
+        $this->validateWebhookSignature($data);
+
+        \AratKruglik\WayForPay\Events\WayForPayCallbackReceived::dispatch($data);
+
+        return $this->buildWebhookResponse($data['orderReference']);
+    }
+
+    private function validateWebhookRequiredFields(array $data): void
+    {
+        foreach (self::WEBHOOK_REQUIRED_FIELDS as $field) {
             if (!isset($data[$field]) || $data[$field] === '') {
                 throw new WayForPayException("Missing required webhook field: {$field}");
             }
         }
+    }
 
-        $signatureParams = [
-            'merchantAccount' => $data['merchantAccount'],
-            'orderReference' => $data['orderReference'],
-            'amount' => $data['amount'] ?? '',
-            'currency' => $data['currency'] ?? '',
-            'authCode' => $data['authCode'] ?? '',
-            'cardPan' => $data['cardPan'] ?? '',
-            'transactionStatus' => $data['transactionStatus'],
-            'reasonCode' => $data['reasonCode'] ?? '',
-        ];
+    private function validateWebhookSignature(array $data): void
+    {
+        $signatureParams = [];
+        foreach (self::WEBHOOK_SIGNATURE_FIELDS as $field) {
+            $signatureParams[$field] = $data[$field] ?? '';
+        }
 
         $expectedSignature = $this->signatureGenerator->generateForServiceUrl($signatureParams);
 
         if (!hash_equals($expectedSignature, $data['merchantSignature'])) {
             throw new SignatureMismatchException('Invalid webhook signature');
         }
+    }
 
-        \AratKruglik\WayForPay\Events\WayForPayCallbackReceived::dispatch($data);
-
+    private function buildWebhookResponse(string $orderReference): array
+    {
         $time = time();
-        $responseStatus = 'accept';
-        $orderRef = $data['orderReference'];
-
-        $responseSignature = $this->signatureGenerator->generateResponseSignature($orderRef, $responseStatus, $time);
+        $status = 'accept';
+        $signature = $this->signatureGenerator->generateResponseSignature($orderReference, $status, $time);
 
         return [
-            'orderReference' => $orderRef,
-            'status' => $responseStatus,
+            'orderReference' => $orderReference,
+            'status' => $status,
             'time' => $time,
-            'signature' => $responseSignature
+            'signature' => $signature,
         ];
     }
 
