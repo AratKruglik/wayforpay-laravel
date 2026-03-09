@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace AratKruglik\WayForPay\Domain;
 
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesOrderReference;
 use InvalidArgumentException;
 
 class Transaction
 {
+    use ValidatesOrderReference;
     private const VALID_CURRENCIES = ['UAH', 'USD', 'EUR', 'PLN', 'GBP'];
 
     /** @var Product[] */
@@ -35,7 +37,7 @@ class Transaction
 
     private function validate(): void
     {
-        $this->validateOrderReference();
+        self::assertValidOrderReference($this->orderReference);
         $this->validatePositive($this->amount, 'Amount');
         $this->validateCurrency();
         $this->validatePositive($this->orderDate, 'Order date', 'Order date must be a valid Unix timestamp');
@@ -43,17 +45,6 @@ class Transaction
         $this->validatePositive($this->orderLifetime, 'Order lifetime');
         $this->validatePositive($this->regularAmount, 'Regular amount');
         $this->validateMinimum($this->regularCount, 'Regular count', 1);
-    }
-
-    private function validateOrderReference(): void
-    {
-        if (trim($this->orderReference) === '') {
-            throw new InvalidArgumentException('Order reference cannot be empty');
-        }
-
-        if (strlen($this->orderReference) > 64) {
-            throw new InvalidArgumentException('Order reference is too long (max 64 characters)');
-        }
     }
 
     private function validateCurrency(): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AratKruglik\WayForPay\Contracts;
 
+use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\Transaction;
 
@@ -32,6 +33,8 @@ interface WayForPayInterface
     public function resumeRecurring(string $orderReference): array;
     
     public function removeRecurring(string $orderReference): array;
+
+    public function p2pAccount(AccountTransfer $transfer): array;
 
     public function handleWebhook(array $data): array;
 }

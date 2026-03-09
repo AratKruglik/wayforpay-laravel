@@ -27,7 +27,7 @@ test('service throws exception on api failure for API methods', function () {
     $transaction->addProduct(new Product('Item', 10.0, 1));
 
     expect(fn() => $service->checkStatus('ORDER123'))
-        ->toThrow(WayForPayException::class, 'API Request failed');
+        ->toThrow(WayForPayException::class, 'API request failed');
 });
 
 test('service throws exception on business error code for API methods', function () {

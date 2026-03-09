@@ -7,16 +7,16 @@ namespace AratKruglik\WayForPay\Domain;
 use AratKruglik\WayForPay\Domain\Concerns\ValidatesCardData;
 use InvalidArgumentException;
 
-readonly class Card
+readonly class CompensationCard
 {
     use ValidatesCardData;
     private string $cleanCardNumber;
 
     public function __construct(
         public string $cardNumber,
-        public string $expMonth,
-        public string $expYear,
-        public string $cvv,
+        public ?string $expMonth = null,
+        public ?string $expYear = null,
+        public ?string $cvv = null,
         public ?string $holderName = null
     ) {
         $this->cleanCardNumber = preg_replace('/\D/', '', $this->cardNumber);
@@ -38,13 +38,19 @@ readonly class Card
 
     private function validateExpiration(): void
     {
-        self::assertValidExpMonth($this->expMonth);
-        self::assertValidExpYear($this->expYear);
+        if ($this->expMonth !== null) {
+            self::assertValidExpMonth($this->expMonth);
+        }
+        if ($this->expYear !== null) {
+            self::assertValidExpYear($this->expYear);
+        }
     }
 
     private function validateCvv(): void
     {
-        self::assertValidCvv($this->cvv);
+        if ($this->cvv !== null) {
+            self::assertValidCvv($this->cvv);
+        }
     }
 
     private function validateHolderName(): void
@@ -54,36 +60,25 @@ readonly class Card
         }
     }
 
-    public static function isValidLuhn(string $number): bool
-    {
-        $sum = 0;
-        $isEven = false;
-
-        for ($i = strlen($number) - 1; $i >= 0; $i--) {
-            $digit = (int) $number[$i];
-
-            if ($isEven) {
-                $digit *= 2;
-                if ($digit > 9) {
-                    $digit -= 9;
-                }
-            }
-
-            $sum += $digit;
-            $isEven = !$isEven;
-        }
-
-        return ($sum % 10) === 0;
-    }
-
     public function toArray(): array
     {
         return array_filter([
-            'card' => $this->cleanCardNumber,
+            'compensationCardNumber' => $this->cleanCardNumber,
+            'compensationCardExpMonth' => $this->expMonth,
+            'compensationCardExpYear' => $this->expYear,
+            'compensationCardCvv' => $this->cvv,
+            'compensationCardHolder' => $this->holderName,
+        ], fn($value) => $value !== null);
+    }
+
+    public function __debugInfo(): array
+    {
+        return [
+            'cardNumber' => str_repeat('*', strlen($this->cleanCardNumber) - 4) . substr($this->cleanCardNumber, -4),
             'expMonth' => $this->expMonth,
             'expYear' => $this->expYear,
-            'cardCvv' => $this->cvv,
-            'cardHolder' => $this->holderName,
-        ], fn($value) => $value !== null);
+            'cvv' => $this->cvv !== null ? '***' : null,
+            'holderName' => $this->holderName,
+        ];
     }
 }

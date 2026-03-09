@@ -4,45 +4,50 @@
 ![License](https://img.shields.io/packagist/l/aratkruglik/wayforpay-laravel)
 ![Version](https://img.shields.io/packagist/v/aratkruglik/wayforpay-laravel)
 
-A robust, native Laravel integration for the WayForPay payment gateway. This package provides a complete replacement for the legacy `wayforpay/php-sdk`, offering modern PHP features, strict typing, and seamless integration with Laravel's ecosystem (Service Container, Events, Http Client).
+Native Laravel integration for the [WayForPay](https://wayforpay.com) payment gateway. Built on `Illuminate\Http\Client` with no external SDK dependencies. Provides strict DTOs, automatic HMAC_MD5 signature handling, and built-in webhook support.
 
 Supports **Laravel 11.x, 12.x** and **PHP 8.2+**.
 
-## 🚀 Features
+## Table of Contents
 
-- **Native Implementation:** Built directly on top of `Illuminate\Support\Facades\Http`. No external SDK dependencies.
-- **Complete API Coverage:**
-    - 🛒 **Purchase Widget:** Generate secure payment URLs.
-    - 💳 **Direct Charge (Host-to-Host):** Process payments server-side.
-    - 🧾 **Invoices:** Create and manage invoices via API.
-    - 🔄 **Recurring Payments:** Complete subscription management (create, suspend, resume, remove).
-    - 💸 **P2P Credit:** Send funds to cards (Account to Card).
-    - 🔒 **Holds & Settlement:** Authorize and capture funds (Auth/Settle).
-    - ↩️ **Refunds:** Full or partial refunds.
-    - ✅ **Card Verification:** Verify card validity.
-- **Strict DTOs:** Data Transfer Objects (`Transaction`, `Product`, `Client`, `Card`) ensure data integrity before sending requests.
-- **Secure:** Automatic HMAC_MD5 signature generation and verification.
-- **Webhooks:** Built-in controller and Event dispatching for easy webhook handling.
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+  - [Purchase (Widget)](#1-purchase-widget)
+  - [Invoices](#2-invoices)
+  - [Direct Charge (Host-to-Host)](#3-direct-charge-host-to-host)
+  - [Recurring Payments](#4-recurring-payments)
+  - [Refunds](#5-refunds)
+  - [Holds (Two-Phase Payments)](#6-holds-two-phase-payments)
+  - [P2P Credit (Payouts)](#7-p2p-credit-payouts)
+  - [P2P Account Transfer](#8-p2p-account-transfer)
+  - [Card Verification](#9-card-verification)
+  - [Check Status](#10-check-status)
+- [Webhooks](#webhooks)
+- [Marketplace Integration (MMS API)](#marketplace-integration-mms-api)
+  - [Partner Management](#partner-management)
+  - [Merchant Management](#merchant-management)
+  - [Balance and Reporting](#balance-and-reporting)
+- [Testing](#testing)
+- [License](#license)
 
 ---
 
-## 📦 Installation
-
-Install the package via Composer:
+## Installation
 
 ```bash
 composer require aratkruglik/wayforpay-laravel
 ```
 
-## ⚙️ Configuration
+## Configuration
 
-1. **Publish the configuration file:**
+Publish the configuration file:
 
 ```bash
 php artisan vendor:publish --tag=wayforpay-config
 ```
 
-2. **Add credentials to your `.env` file:**
+Add credentials to `.env`:
 
 ```env
 WAYFORPAY_MERCHANT_ACCOUNT=your_merchant_login
@@ -52,11 +57,11 @@ WAYFORPAY_MERCHANT_DOMAIN=your_domain.com
 
 ---
 
-## 🛠 Usage
+## Usage
 
 ### 1. Purchase (Widget)
 
-Generate a self-submitting HTML form that redirects the user to the secure WayForPay checkout page.
+Generate a self-submitting HTML form that redirects the user to the WayForPay checkout page.
 
 ```php
 use AratKruglik\WayForPay\Facades\WayForPay;
@@ -77,12 +82,11 @@ $transaction = new Transaction(
     currency: 'UAH',
     orderDate: time(),
     client: $client,
-    paymentSystems: 'card;googlePay;applePay' // Optional: limit payment methods
+    paymentSystems: 'card;googlePay;applePay'
 );
 
 $transaction->addProduct(new Product('T-Shirt', 100.50, 1));
 
-// Returns HTML with auto-submitting form
 $html = WayForPay::purchase(
     $transaction,
     returnUrl: 'https://myshop.com/payment/success',
@@ -94,28 +98,25 @@ return response($html);
 
 #### Custom Form Rendering
 
-If you need to render the form yourself (e.g., for SPA applications):
+For SPA or custom frontend integration, use `getPurchaseFormData` to get raw form fields:
 
 ```php
-// Get raw form data as an array
 $formData = WayForPay::getPurchaseFormData($transaction, $returnUrl, $serviceUrl);
 
-// Pass to your frontend
 return response()->json([
     'form_action' => 'https://secure.wayforpay.com/pay',
-    'form_data' => $formData
+    'form_data' => $formData,
 ]);
 ```
 
-Then in your JavaScript:
+Submit the form programmatically on the client side:
 
 ```javascript
-// Create and submit form programmatically
 const form = document.createElement('form');
 form.method = 'POST';
-form.action = 'https://secure.wayforpay.com/pay';
+form.action = data.form_action;
 
-Object.entries(formData).forEach(([key, value]) => {
+Object.entries(data.form_data).forEach(([key, value]) => {
     if (Array.isArray(value)) {
         value.forEach(item => {
             const input = document.createElement('input');
@@ -139,23 +140,22 @@ form.submit();
 
 ### 2. Invoices
 
-Generate a payment link that can be sent to a client via email or messenger.
+Generate a payment link to send via email or messenger.
 
 ```php
-// Create Invoice
 $response = WayForPay::createInvoice($transaction, returnUrl: 'https://myshop.com/success');
 $invoiceUrl = $response['invoiceUrl'];
 
-// Remove Invoice (if needed)
 WayForPay::removeInvoice('ORDER_123');
 ```
 
 ### 3. Direct Charge (Host-to-Host)
 
-**⚠️ Warning:** Requires PCI DSS compliance if handling raw card data on your server.
+> **Warning:** Requires PCI DSS compliance when handling raw card data server-side.
 
 ```php
 use AratKruglik\WayForPay\Domain\Card;
+use AratKruglik\WayForPay\Enums\ReasonCode;
 
 $card = new Card(
     cardNumber: '4111111111111111',
@@ -167,23 +167,15 @@ $card = new Card(
 
 $response = WayForPay::charge($transaction, $card);
 
-if ($response['reasonCode'] == 1100) {
-    // Payment Successful
-}
-
-// Or using the built-in Enum
-use AratKruglik\WayForPay\Enums\ReasonCode;
-
-$code = ReasonCode::tryFrom((int)$response['reasonCode']);
+$code = ReasonCode::tryFrom((int) $response['reasonCode']);
 if ($code?->isSuccess()) {
-    // Success
+    // Payment successful
 }
 ```
 
-### 4. Recurring Payments (Subscriptions)
+### 4. Recurring Payments
 
-**Step 1: Create Subscription**
-Pass regular payment parameters during the initial purchase.
+Create a subscription by passing regular payment parameters during the initial purchase:
 
 ```php
 $transaction = new Transaction(
@@ -191,72 +183,82 @@ $transaction = new Transaction(
     amount: 100.00,
     currency: 'UAH',
     orderDate: time(),
-    regularMode: 'monthly', // 'daily', 'weekly', 'quarterly', etc.
+    regularMode: 'monthly',
     regularAmount: 100.00,
     dateNext: '25.05.2025',
     dateEnd: '25.05.2026'
 );
 
-$url = WayForPay::purchase($transaction);
+$html = WayForPay::purchase($transaction);
 ```
 
-**Step 2: Manage Subscription**
+Manage existing subscriptions:
 
 ```php
-// Pause subscription
 WayForPay::suspendRecurring('SUB_123');
-
-// Resume subscription
 WayForPay::resumeRecurring('SUB_123');
-
-// Cancel subscription permanently
 WayForPay::removeRecurring('SUB_123');
 ```
 
 ### 5. Refunds
 
-Process a full or partial refund.
-
 ```php
-// Refund 50 UAH from the order
 WayForPay::refund('ORDER_123', 50.00, 'UAH', 'Customer return');
 ```
 
 ### 6. Holds (Two-Phase Payments)
 
-**Authorize (Hold funds):**
-Use `charge` with `merchantTransactionType` set to `'AUTH'`. (Currently, `charge` defaults to `SALE`, you may need to extend or modify the `Transaction` config if complex auth flows are needed, or simply rely on `purchase` with hold settings).
-
-**Settle (Confirm transaction):**
+Settle a previously authorized hold:
 
 ```php
-// Confirm and withdraw the held amount
 WayForPay::settle('ORDER_123', 100.50, 'UAH');
 ```
 
 ### 7. P2P Credit (Payouts)
 
-Send money from your merchant account to a client's card.
+Send funds from the merchant account to a recipient card:
 
 ```php
 WayForPay::p2pCredit(
     orderReference: 'PAYOUT_001',
     amount: 500.00,
     currency: 'UAH',
-    cardBeneficiary: '4111111111111111' // Recipient card
+    cardBeneficiary: '4111111111111111'
 );
 ```
 
-### 8. Card Verification
+### 8. P2P Account Transfer
 
-Verify a card by blocking a random amount (e.g., 1 UAH) which is then reversed.
+Transfer funds to a bank account (UAH only):
+
+```php
+use AratKruglik\WayForPay\Domain\AccountTransfer;
+
+$transfer = new AccountTransfer(
+    orderReference: 'TRANSFER_001',
+    amount: 1500.00,
+    currency: 'UAH',
+    iban: 'UA213223130000026007233566001',
+    okpo: '12345678',
+    accountName: 'FOP Ivanov I.I.',
+    description: 'Payout for services',
+    serviceUrl: 'https://myshop.com/api/wayforpay/callback',
+    recipientEmail: 'recipient@example.com'
+);
+
+$response = WayForPay::p2pAccount($transfer);
+```
+
+### 9. Card Verification
+
+Verify a card by blocking a small amount that is automatically reversed:
 
 ```php
 $url = WayForPay::verifyCard('VERIFY_ORDER_001');
 return redirect($url);
 ```
 
-### 9. Check Status
+### 10. Check Status
 
 ```php
 $status = WayForPay::checkStatus('ORDER_123');
@@ -265,47 +267,47 @@ $status = WayForPay::checkStatus('ORDER_123');
 
 ---
 
-## 🪝 Webhooks (Callback Handling)
+## Webhooks
 
-This package handles signature verification automatically.
+The package handles signature verification automatically.
 
-**Option A: Use the built-in Event**
+**Option A: Built-in controller with event dispatching**
 
-Create a route in your `routes/api.php` that points to the built-in controller:
+Register the route in `routes/api.php`:
 
 ```php
 Route::post('wayforpay/callback', \AratKruglik\WayForPay\Http\Controllers\WebhookController::class);
 ```
 
-Then listen for the `WayForPayCallbackReceived` event in your `EventServiceProvider`:
+Listen for the event:
 
 ```php
 use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
 
 Event::listen(WayForPayCallbackReceived::class, function ($event) {
     $data = $event->data;
-    
+
     if ($data['transactionStatus'] === 'Approved') {
-        // Update order status in database
+        // Update order status
     }
 });
 ```
 
-**Option B: Manual Handling**
-
-Use the service method within your own controller:
+**Option B: Manual handling in a custom controller**
 
 ```php
-public function handle(Request $request, \AratKruglik\WayForPay\Services\WayForPayService $service)
+use AratKruglik\WayForPay\Services\WayForPayService;
+use AratKruglik\WayForPay\Exceptions\WayForPayException;
+
+public function handle(Request $request, WayForPayService $service)
 {
     try {
-        // Validates signature and returns the correct success response array for WayForPay
         $response = $service->handleWebhook($request->all());
-        
-        // Process your logic here...
-        
+
+        // Process order logic...
+
         return response()->json($response);
-    } catch (\AratKruglik\WayForPay\Exceptions\WayForPayException $e) {
+    } catch (WayForPayException $e) {
         return response()->json(['status' => 'error'], 400);
     }
 }
@@ -313,9 +315,140 @@ public function handle(Request $request, \AratKruglik\WayForPay\Services\WayForP
 
 ---
 
-## ✅ Testing
+## Marketplace Integration (MMS API)
 
-Run the test suite with Pest:
+The MMS (Merchant Management System) API enables marketplace platforms to programmatically manage sub-merchants and partners, configure compensation (payout) methods, and query balances.
+
+Available via the `Mms` facade or constructor injection:
+
+```php
+use AratKruglik\WayForPay\Facades\Mms;
+
+// Facade
+Mms::addPartner($partner);
+
+// Constructor injection
+use AratKruglik\WayForPay\Contracts\MmsServiceInterface;
+
+class PartnerController extends Controller
+{
+    public function __construct(
+        private readonly MmsServiceInterface $mms
+    ) {}
+}
+```
+
+### Partner Management
+
+#### Register a new partner
+
+```php
+use AratKruglik\WayForPay\Facades\Mms;
+use AratKruglik\WayForPay\Domain\Partner;
+use AratKruglik\WayForPay\Domain\CompensationCard;
+use AratKruglik\WayForPay\Domain\CompensationAccount;
+
+// Option 1: Compensation via card
+$partner = new Partner(
+    partnerCode: 'PARTNER_001',
+    site: 'https://partner-shop.com',
+    phone: '+380501234567',
+    email: 'partner@example.com',
+    description: 'Partner shop description',
+    compensationCard: new CompensationCard(
+        cardNumber: '4111111111111111',
+        expMonth: '12',
+        expYear: '25',
+        cvv: '123',
+        holderName: 'PARTNER NAME'
+    )
+);
+
+// Option 2: Compensation via bank account
+$partner = new Partner(
+    partnerCode: 'PARTNER_002',
+    site: 'https://partner-shop.com',
+    phone: '+380501234567',
+    email: 'partner@example.com',
+    compensationAccount: new CompensationAccount(
+        iban: 'UA213223130000026007233566001',
+        okpo: '12345678',
+        name: 'FOP Partner Name'
+    )
+);
+
+// Option 3: Compensation via tokenized card
+$partner = new Partner(
+    partnerCode: 'PARTNER_003',
+    site: 'https://partner-shop.com',
+    phone: '+380501234567',
+    email: 'partner@example.com',
+    compensationCardToken: 'card_token_from_wayforpay'
+);
+
+$response = Mms::addPartner($partner);
+```
+
+#### Query partner info
+
+```php
+$info = Mms::partnerInfo('PARTNER_001');
+```
+
+#### Update partner details
+
+```php
+Mms::updatePartner('PARTNER_001', [
+    'phone' => '+380509876543',
+    'email' => 'new-email@example.com',
+    'compensationCardToken' => 'new_token',
+]);
+```
+
+### Merchant Management
+
+#### Register a sub-merchant
+
+```php
+use AratKruglik\WayForPay\Facades\Mms;
+use AratKruglik\WayForPay\Domain\Merchant;
+use AratKruglik\WayForPay\Domain\CompensationCard;
+
+$merchant = new Merchant(
+    site: 'https://sub-merchant.com',
+    phone: '+380501234567',
+    email: 'merchant@example.com',
+    description: 'Sub-merchant description',
+    compensationCard: new CompensationCard(
+        cardNumber: '4111111111111111'
+    )
+);
+
+$response = Mms::addMerchant($merchant);
+```
+
+#### Query merchant info
+
+Requires the sub-merchant's account ID and secret key:
+
+```php
+$info = Mms::merchantInfo('sub_merchant_account', 'sub_merchant_secret_key');
+```
+
+### Balance and Reporting
+
+```php
+use AratKruglik\WayForPay\Facades\Mms;
+
+$balance = Mms::merchantBalance();
+
+// With date filter (dd.mm.yyyy format)
+$balance = Mms::merchantBalance('01.01.2026');
+```
+
+---
+
+## Testing
 
 ```bash
 vendor/bin/pest
@@ -323,6 +456,6 @@ vendor/bin/pest
 
 ---
 
-## 📄 License
+## License
 
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+The MIT License (MIT). See [License File](LICENSE.md) for details.

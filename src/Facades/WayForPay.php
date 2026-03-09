@@ -7,6 +7,7 @@ namespace AratKruglik\WayForPay\Facades;
 use Illuminate\Support\Facades\Facade;
 
 /**
+ * @method static array getPurchaseFormData(\AratKruglik\WayForPay\Domain\Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null)
  * @method static string purchase(\AratKruglik\WayForPay\Domain\Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null)
  * @method static array createInvoice(\AratKruglik\WayForPay\Domain\Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null)
  * @method static array removeInvoice(string $orderReference)
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array suspendRecurring(string $orderReference)
  * @method static array resumeRecurring(string $orderReference)
  * @method static array removeRecurring(string $orderReference)
+ * @method static array p2pAccount(\AratKruglik\WayForPay\Domain\AccountTransfer $transfer)
  * @method static array handleWebhook(array $data)
  *
  * @see \AratKruglik\WayForPay\Services\WayForPayService
