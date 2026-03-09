@@ -7,6 +7,7 @@ namespace AratKruglik\WayForPay\Services;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Config;
 use AratKruglik\WayForPay\Contracts\WayForPayInterface;
+use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\Transaction;
 use AratKruglik\WayForPay\Enums\ReasonCode;
@@ -322,6 +323,30 @@ HTML;
         return $this->handleResponse($response);
     }
 
+    public function p2pAccount(AccountTransfer $transfer): array
+    {
+        $data = array_merge(
+            [
+                'transactionType' => 'P2P_ACCOUNT',
+                'merchantAccount' => $this->merchantAccount,
+                'apiVersion' => 1,
+            ],
+            $transfer->toArray()
+        );
+
+        $data['merchantSignature'] = $this->signatureGenerator->generateForP2pAccount([
+            'merchantAccount' => $this->merchantAccount,
+            'orderReference' => $transfer->orderReference,
+            'amount' => $transfer->amount,
+            'currency' => $transfer->currency,
+            'iban' => $transfer->iban,
+            'okpo' => $transfer->okpo,
+            'accountName' => $transfer->accountName,
+        ]);
+
+        return $this->sendRequest($data);
+    }
+
     public function handleWebhook(array $data): array
     {
         $this->validateWebhookRequiredFields($data);
@@ -381,7 +406,7 @@ HTML;
     protected function handleResponse(\Illuminate\Http\Client\Response $response, ?string $returnKey = null): array|string
     {
         if ($response->failed()) {
-            throw new WayForPayException('API Request failed: ' . $response->body());
+            throw new WayForPayException('API request failed', responseData: ['httpStatus' => $response->status()]);
         }
 
         $json = $response->json();
@@ -399,7 +424,7 @@ HTML;
 
         if ($returnKey) {
             if (!isset($json[$returnKey])) {
-                 throw new WayForPayException('Failed to retrieve ' . $returnKey . '. Response: ' . $response->body());
+                 throw new WayForPayException("Failed to retrieve {$returnKey} from API response");
             }
             return $json[$returnKey];
         }

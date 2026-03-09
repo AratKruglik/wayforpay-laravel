@@ -149,4 +149,57 @@ class SignatureGenerator
             $time
         ]);
     }
+
+    public function generateForAddPartner(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+            $data['partnerCode'],
+            $data['phone'],
+            $data['email'],
+        ]);
+    }
+
+    public function generateForPartnerInfo(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+            $data['partnerCode'],
+        ]);
+    }
+
+    public function generateForUpdatePartner(array $data): string
+    {
+        return $this->generateForPartnerInfo($data);
+    }
+
+    public function generateForAddMerchant(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+            $data['site'],
+            $data['phone'],
+            $data['email'],
+        ]);
+    }
+
+    public function generateForMerchantBalance(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+        ]);
+    }
+
+    public function generateForP2pAccount(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+            $data['orderReference'],
+            $data['amount'],
+            $data['currency'],
+            $data['iban'],
+            $data['okpo'],
+            $data['accountName'],
+        ]);
+    }
 }

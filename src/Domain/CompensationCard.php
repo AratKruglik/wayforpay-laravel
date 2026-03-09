@@ -6,15 +6,15 @@ namespace AratKruglik\WayForPay\Domain;
 
 use InvalidArgumentException;
 
-readonly class Card
+readonly class CompensationCard
 {
     private string $cleanCardNumber;
 
     public function __construct(
         public string $cardNumber,
-        public string $expMonth,
-        public string $expYear,
-        public string $cvv,
+        public ?string $expMonth = null,
+        public ?string $expYear = null,
+        public ?string $cvv = null,
         public ?string $holderName = null
     ) {
         $this->cleanCardNumber = preg_replace('/\D/', '', $this->cardNumber);
@@ -36,25 +36,25 @@ readonly class Card
             throw new InvalidArgumentException('Card number must be between 13 and 19 digits');
         }
 
-        if (!self::isValidLuhn($this->cleanCardNumber)) {
+        if (!Card::isValidLuhn($this->cleanCardNumber)) {
             throw new InvalidArgumentException('Invalid card number (Luhn check failed)');
         }
     }
 
     private function validateExpiration(): void
     {
-        if (!preg_match('/^(0[1-9]|1[0-2])$/', $this->expMonth)) {
+        if ($this->expMonth !== null && !preg_match('/^(0[1-9]|1[0-2])$/', $this->expMonth)) {
             throw new InvalidArgumentException('Expiration month must be between 01 and 12');
         }
 
-        if (!preg_match('/^\d{2}$/', $this->expYear)) {
+        if ($this->expYear !== null && !preg_match('/^\d{2}$/', $this->expYear)) {
             throw new InvalidArgumentException('Expiration year must be 2 digits');
         }
     }
 
     private function validateCvv(): void
     {
-        if (!preg_match('/^\d{3,4}$/', $this->cvv)) {
+        if ($this->cvv !== null && !preg_match('/^\d{3,4}$/', $this->cvv)) {
             throw new InvalidArgumentException('CVV must be 3 or 4 digits');
         }
     }
@@ -66,36 +66,25 @@ readonly class Card
         }
     }
 
-    public static function isValidLuhn(string $number): bool
-    {
-        $sum = 0;
-        $isEven = false;
-
-        for ($i = strlen($number) - 1; $i >= 0; $i--) {
-            $digit = (int) $number[$i];
-
-            if ($isEven) {
-                $digit *= 2;
-                if ($digit > 9) {
-                    $digit -= 9;
-                }
-            }
-
-            $sum += $digit;
-            $isEven = !$isEven;
-        }
-
-        return ($sum % 10) === 0;
-    }
-
     public function toArray(): array
     {
         return array_filter([
-            'card' => $this->cleanCardNumber,
+            'compensationCardNumber' => $this->cleanCardNumber,
+            'compensationCardExpMonth' => $this->expMonth,
+            'compensationCardExpYear' => $this->expYear,
+            'compensationCardCvv' => $this->cvv,
+            'compensationCardHolder' => $this->holderName,
+        ], fn($value) => $value !== null);
+    }
+
+    public function __debugInfo(): array
+    {
+        return [
+            'cardNumber' => str_repeat('*', strlen($this->cleanCardNumber) - 4) . substr($this->cleanCardNumber, -4),
             'expMonth' => $this->expMonth,
             'expYear' => $this->expYear,
-            'cardCvv' => $this->cvv,
-            'cardHolder' => $this->holderName,
-        ], fn($value) => $value !== null);
+            'cvv' => $this->cvv !== null ? '***' : null,
+            'holderName' => $this->holderName,
+        ];
     }
 }

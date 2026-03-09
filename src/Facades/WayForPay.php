@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array suspendRecurring(string $orderReference)
  * @method static array resumeRecurring(string $orderReference)
  * @method static array removeRecurring(string $orderReference)
+ * @method static array p2pAccount(\AratKruglik\WayForPay\Domain\AccountTransfer $transfer)
  * @method static array handleWebhook(array $data)
  *
  * @see \AratKruglik\WayForPay\Services\WayForPayService

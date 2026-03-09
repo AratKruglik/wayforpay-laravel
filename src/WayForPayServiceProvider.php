@@ -43,5 +43,16 @@ class WayForPayServiceProvider extends ServiceProvider
         $this->app->bind(\AratKruglik\WayForPay\Contracts\WayForPayInterface::class, \AratKruglik\WayForPay\Services\WayForPayService::class);
 
         $this->app->alias(\AratKruglik\WayForPay\Services\WayForPayService::class, 'wayforpay');
+
+        $this->app->singleton(\AratKruglik\WayForPay\Services\MmsService::class, function ($app) {
+            return new \AratKruglik\WayForPay\Services\MmsService(
+                $app->make(\AratKruglik\WayForPay\Services\SignatureGenerator::class),
+                $app->make(\Illuminate\Http\Client\Factory::class)
+            );
+        });
+
+        $this->app->bind(\AratKruglik\WayForPay\Contracts\MmsServiceInterface::class, \AratKruglik\WayForPay\Services\MmsService::class);
+
+        $this->app->alias(\AratKruglik\WayForPay\Services\MmsService::class, 'wayforpay.mms');
     }
 }
