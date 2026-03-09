@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace AratKruglik\WayForPay\Domain;
 
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesOrderReference;
 use InvalidArgumentException;
 
 readonly class AccountTransfer
 {
+    use ValidatesOrderReference;
     public function __construct(
         public string $orderReference,
         public float $amount,
@@ -26,7 +28,7 @@ readonly class AccountTransfer
 
     private function validate(): void
     {
-        $this->validateOrderReference();
+        self::assertValidOrderReference($this->orderReference);
         $this->validateAmount();
         $this->validateCurrency();
         CompensationAccount::validateIban($this->iban);
@@ -34,17 +36,6 @@ readonly class AccountTransfer
         $this->validateAccountName();
         $this->validateServiceUrl();
         $this->validateRecipientEmail();
-    }
-
-    private function validateOrderReference(): void
-    {
-        if (trim($this->orderReference) === '') {
-            throw new InvalidArgumentException('Order reference cannot be empty');
-        }
-
-        if (strlen($this->orderReference) > 64) {
-            throw new InvalidArgumentException('Order reference must not exceed 64 characters');
-        }
     }
 
     private function validateAmount(): void

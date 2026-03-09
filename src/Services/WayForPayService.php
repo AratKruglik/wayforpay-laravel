@@ -10,12 +10,22 @@ use AratKruglik\WayForPay\Contracts\WayForPayInterface;
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\Transaction;
-use AratKruglik\WayForPay\Enums\ReasonCode;
+use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
 use AratKruglik\WayForPay\Exceptions\WayForPayException;
 use AratKruglik\WayForPay\Exceptions\SignatureMismatchException;
+use AratKruglik\WayForPay\Services\Concerns\HandlesApiResponse;
+use InvalidArgumentException;
 
 class WayForPayService implements WayForPayInterface
 {
+    use HandlesApiResponse;
+
+    private const PAY_URL = 'https://secure.wayforpay.com/pay';
+    private const VERIFY_URL = 'https://secure.wayforpay.com/verify';
+    private const REGULAR_API_URL = 'https://api.wayforpay.com/regularApi';
+    private const PURCHASE_TIMEOUT = 49000;
+    private const INVOICE_TIMEOUT = 86400;
+    private const DEFAULT_PAYMENT_SYSTEM = 'card';
     private const WEBHOOK_REQUIRED_FIELDS = ['merchantAccount', 'orderReference', 'transactionStatus', 'merchantSignature'];
     private const WEBHOOK_SIGNATURE_FIELDS = ['merchantAccount', 'orderReference', 'amount', 'currency', 'authCode', 'cardPan', 'transactionStatus', 'reasonCode'];
 
@@ -50,8 +60,8 @@ class WayForPayService implements WayForPayInterface
         $payload = array_merge($data, [
             'merchantAuthType' => 'SimpleSignature',
             'merchantSignature' => $signature,
-            'orderTimeout' => 49000,
-            'defaultPaymentSystem' => 'card',
+            'orderTimeout' => self::PURCHASE_TIMEOUT,
+            'defaultPaymentSystem' => self::DEFAULT_PAYMENT_SYSTEM,
         ]);
 
         if ($transaction->client) {
@@ -77,7 +87,7 @@ class WayForPayService implements WayForPayInterface
         $isValidScheme = in_array($scheme, ['http', 'https'], true);
 
         if (!$isValidUrl || !$isValidScheme) {
-            throw new \InvalidArgumentException("Invalid {$paramName}: must be a valid HTTP/HTTPS URL");
+            throw new InvalidArgumentException("Invalid {$paramName}: must be a valid HTTP/HTTPS URL");
         }
 
         return $url;
@@ -85,6 +95,7 @@ class WayForPayService implements WayForPayInterface
 
     private function generateAutoSubmitForm(array $formData): string
     {
+        $payUrl = self::PAY_URL;
         $inputs = '';
 
         foreach ($formData as $key => $value) {
@@ -107,7 +118,7 @@ class WayForPayService implements WayForPayInterface
     <title>Redirecting to payment...</title>
 </head>
 <body>
-    <form id="wayforpay_form" method="POST" action="https://secure.wayforpay.com/pay" accept-charset="utf-8">
+    <form id="wayforpay_form" method="POST" action="{$payUrl}" accept-charset="utf-8">
         {$inputs}
     </form>
     <script type="text/javascript">
@@ -129,11 +140,15 @@ HTML;
         $payload = array_merge($data, [
             'merchantAuthType' => 'SimpleSignature',
             'merchantSignature' => $signature,
-            'orderTimeout' => 86400,
+            'orderTimeout' => self::INVOICE_TIMEOUT,
         ]);
         
-        if ($transaction->client) $payload = array_merge($payload, $transaction->client->toArray());
-        if ($serviceUrl) $payload['serviceUrl'] = $serviceUrl;
+        if ($transaction->client) {
+            $payload = array_merge($payload, $transaction->client->toArray());
+        }
+        if ($serviceUrl) {
+            $payload['serviceUrl'] = $serviceUrl;
+        }
         
         return $this->sendRequest($payload);
     }
@@ -169,7 +184,9 @@ HTML;
                  $data['clientIpAddress'] = request()->ip() ?? '127.0.0.1';
             }
         }
-        if ($serviceUrl) $data['serviceUrl'] = $serviceUrl;
+        if ($serviceUrl) {
+            $data['serviceUrl'] = $serviceUrl;
+        }
         
         return $this->sendRequest($data);
     }
@@ -287,9 +304,9 @@ HTML;
         
         $response = $this->http->asJson()
             ->timeout($this->timeout)
-            ->post('https://secure.wayforpay.com/verify', $data);
+            ->post(self::VERIFY_URL, $data);
             
-        return $this->handleResponse($response, 'url');
+        return $this->parseResponse($response, returnKey: 'url');
     }
 
     public function suspendRecurring(string $orderReference): array
@@ -318,9 +335,9 @@ HTML;
 
         $response = $this->http->asJson()
             ->timeout($this->timeout)
-            ->post('https://api.wayforpay.com/regularApi', $data);
+            ->post(self::REGULAR_API_URL, $data);
 
-        return $this->handleResponse($response);
+        return $this->parseResponse($response);
     }
 
     public function p2pAccount(AccountTransfer $transfer): array
@@ -352,7 +369,7 @@ HTML;
         $this->validateWebhookRequiredFields($data);
         $this->validateWebhookSignature($data);
 
-        \AratKruglik\WayForPay\Events\WayForPayCallbackReceived::dispatch($data);
+        WayForPayCallbackReceived::dispatch($data);
 
         return $this->buildWebhookResponse($data['orderReference']);
     }
@@ -400,35 +417,6 @@ HTML;
             ->timeout($this->timeout)
             ->post($this->baseUrl, $data);
 
-        return $this->handleResponse($response);
-    }
-
-    protected function handleResponse(\Illuminate\Http\Client\Response $response, ?string $returnKey = null): array|string
-    {
-        if ($response->failed()) {
-            throw new WayForPayException('API request failed', responseData: ['httpStatus' => $response->status()]);
-        }
-
-        $json = $response->json();
-
-        if (isset($json['reasonCode'])) {
-            $code = ReasonCode::tryFrom((int) $json['reasonCode']);
-            if ($code && !$code->isSuccess()) {
-                throw new WayForPayException(
-                    message: $json['reason'] ?? $code->getDescription(),
-                    reasonCode: $code,
-                    responseData: $json
-                );
-            }
-        }
-
-        if ($returnKey) {
-            if (!isset($json[$returnKey])) {
-                 throw new WayForPayException("Failed to retrieve {$returnKey} from API response");
-            }
-            return $json[$returnKey];
-        }
-
-        return $json;
+        return $this->parseResponse($response);
     }
 }

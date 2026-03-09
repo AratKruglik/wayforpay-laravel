@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace AratKruglik\WayForPay\Domain;
 
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesCardData;
 use InvalidArgumentException;
 
 readonly class CompensationCard
 {
+    use ValidatesCardData;
     private string $cleanCardNumber;
 
     public function __construct(
@@ -31,38 +33,30 @@ readonly class CompensationCard
 
     private function validateCardNumber(): void
     {
-        $length = strlen($this->cleanCardNumber);
-        if ($length < 13 || $length > 19) {
-            throw new InvalidArgumentException('Card number must be between 13 and 19 digits');
-        }
-
-        if (!Card::isValidLuhn($this->cleanCardNumber)) {
-            throw new InvalidArgumentException('Invalid card number (Luhn check failed)');
-        }
+        self::assertValidCardNumber($this->cleanCardNumber);
     }
 
     private function validateExpiration(): void
     {
-        if ($this->expMonth !== null && !preg_match('/^(0[1-9]|1[0-2])$/', $this->expMonth)) {
-            throw new InvalidArgumentException('Expiration month must be between 01 and 12');
+        if ($this->expMonth !== null) {
+            self::assertValidExpMonth($this->expMonth);
         }
-
-        if ($this->expYear !== null && !preg_match('/^\d{2}$/', $this->expYear)) {
-            throw new InvalidArgumentException('Expiration year must be 2 digits');
+        if ($this->expYear !== null) {
+            self::assertValidExpYear($this->expYear);
         }
     }
 
     private function validateCvv(): void
     {
-        if ($this->cvv !== null && !preg_match('/^\d{3,4}$/', $this->cvv)) {
-            throw new InvalidArgumentException('CVV must be 3 or 4 digits');
+        if ($this->cvv !== null) {
+            self::assertValidCvv($this->cvv);
         }
     }
 
     private function validateHolderName(): void
     {
-        if ($this->holderName !== null && strlen($this->holderName) > 100) {
-            throw new InvalidArgumentException('Card holder name is too long');
+        if ($this->holderName !== null) {
+            self::assertValidHolderName($this->holderName);
         }
     }
 

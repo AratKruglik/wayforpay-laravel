@@ -10,6 +10,7 @@ use AratKruglik\WayForPay\Contracts\MmsServiceInterface;
 use AratKruglik\WayForPay\Domain\Merchant;
 use AratKruglik\WayForPay\Domain\Partner;
 use AratKruglik\WayForPay\Services\Concerns\HandlesApiResponse;
+use InvalidArgumentException;
 
 class MmsService implements MmsServiceInterface
 {
@@ -119,7 +120,7 @@ class MmsService implements MmsServiceInterface
 
         if ($toDate !== null) {
             if (!preg_match('/^\d{2}\.\d{2}\.\d{4}$/', $toDate)) {
-                throw new \InvalidArgumentException('toDate must be in dd.mm.yyyy format');
+                throw new InvalidArgumentException('toDate must be in dd.mm.yyyy format');
             }
             $data['toDate'] = $toDate;
         }

@@ -60,6 +60,6 @@ readonly class Client
             'clientAddress' => $this->address,
             'clientCity' => $this->city,
             'clientCountry' => $this->country,
-        ], fn($value) => !is_null($value));
+        ], fn($value) => $value !== null);
     }
 }

@@ -10,8 +10,11 @@ use Illuminate\Http\Client\Response;
 
 trait HandlesApiResponse
 {
-    protected function parseResponse(Response $response, string $errorPrefix = 'API'): array
-    {
+    protected function parseResponse(
+        Response $response,
+        string $errorPrefix = 'API',
+        ?string $returnKey = null
+    ): array|string {
         if ($response->failed()) {
             throw new WayForPayException(
                 message: "{$errorPrefix} request failed",
@@ -30,6 +33,13 @@ trait HandlesApiResponse
                     responseData: $json
                 );
             }
+        }
+
+        if ($returnKey !== null) {
+            if (!isset($json[$returnKey])) {
+                throw new WayForPayException("Failed to retrieve {$returnKey} from API response");
+            }
+            return $json[$returnKey];
         }
 
         return $json;
