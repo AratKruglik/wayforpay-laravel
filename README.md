@@ -6,7 +6,7 @@
 
 Native Laravel integration for the [WayForPay](https://wayforpay.com) payment gateway. Built on `Illuminate\Http\Client` with no external SDK dependencies. Provides strict DTOs, automatic HMAC_MD5 signature handling, and built-in webhook support.
 
-Supports **Laravel 11.x, 12.x** and **PHP 8.2+**.
+Supports **Laravel 11.x-13.x** and **PHP 8.2+**.
 
 ## Table of Contents
 
