@@ -98,6 +98,90 @@ test('it generates correct signature for merchantBalance', function () {
     expect($signature)->toBe($expected);
 });
 
+test('generateForPurchase signature is byte-identical with and without merchantTransactionType and holdTimeout', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+
+    $baseData = [
+        'merchantAccount' => 'test_merch_n1',
+        'merchantDomainName' => 'www.market.ua',
+        'orderReference' => 'ORD_HOLD_001',
+        'orderDate' => 1415379863,
+        'amount' => 100.0,
+        'currency' => 'UAH',
+        'productName' => ['Item'],
+        'productCount' => [1],
+        'productPrice' => [100.0],
+    ];
+
+    $holdData = array_merge($baseData, [
+        'merchantTransactionType' => 'AUTH',
+        'holdTimeout' => 604800,
+    ]);
+
+    expect($generator->generateForPurchase($holdData))->toBe($generator->generateForPurchase($baseData));
+});
+
+test('generateForCharge signature is byte-identical with and without merchantTransactionType and holdTimeout', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+
+    $baseData = [
+        'merchantAccount' => 'test_merch_n1',
+        'merchantDomainName' => 'www.market.ua',
+        'orderReference' => 'ORD_HOLD_002',
+        'orderDate' => 1415379863,
+        'amount' => 100.0,
+        'currency' => 'UAH',
+        'card' => '4111111111111111',
+        'expMonth' => '12',
+        'expYear' => '25',
+        'cardCvv' => '123',
+        'cardHolder' => 'John Doe',
+        'productName' => ['Item'],
+        'productCount' => [1],
+        'productPrice' => [100.0],
+    ];
+
+    $holdData = array_merge($baseData, [
+        'merchantTransactionType' => 'AUTH',
+        'holdTimeout' => 604800,
+    ]);
+
+    expect($generator->generateForCharge($holdData))->toBe($generator->generateForCharge($baseData));
+});
+
+test('it generates correct signature for settle with explicit expected value', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'orderReference' => 'ORD_AUTH',
+        'amount' => 60.0,
+        'currency' => 'UAH',
+    ];
+
+    $signature = $generator->generateForSettle($data);
+    $expected = hash_hmac('md5', 'test_merch_n1;ORD_AUTH;60;UAH', 'flk3409refn54t54t*FNJRET');
+
+    expect($signature)->toBe($expected);
+});
+
+test('generateForSettle signature is unaffected by mixed-in product fields', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'orderReference' => 'ORD_AUTH',
+        'amount' => 60.0,
+        'currency' => 'UAH',
+    ];
+
+    $dataWithProducts = array_merge($data, [
+        'productName' => ['Item'],
+        'productPrice' => [60.0],
+        'productCount' => [1],
+    ]);
+
+    expect($generator->generateForSettle($dataWithProducts))->toBe($generator->generateForSettle($data));
+});
+
 test('it generates correct signature for p2pAccount', function () {
     $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
     $data = [

@@ -86,4 +86,15 @@ readonly class Card
             'cardHolder' => $this->holderName,
         ], fn($value) => $value !== null);
     }
+
+    public function __debugInfo(): array
+    {
+        return [
+            'cardNumber' => str_repeat('*', strlen($this->cleanCardNumber) - 4) . substr($this->cleanCardNumber, -4),
+            'expMonth' => $this->expMonth,
+            'expYear' => $this->expYear,
+            'cvv' => '***',
+            'holderName' => $this->holderName,
+        ];
+    }
 }

@@ -30,6 +30,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Default Hold Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Fallback value (in seconds) for Transaction::$holdTimeout when creating
+    | a hold via hold()/getHoldFormData()/holdCharge(). Null means no default
+    | is applied and WayForPay's own default (1728000 seconds) is used.
+    |
+    */
+
+    'default_hold_timeout' => env('WAYFORPAY_HOLD_TIMEOUT'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Debug Mode
     |--------------------------------------------------------------------------
     |

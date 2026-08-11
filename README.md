@@ -19,6 +19,11 @@ Supports **Laravel 11.x-13.x** and **PHP 8.2+**.
   - [Recurring Payments](#4-recurring-payments)
   - [Refunds](#5-refunds)
   - [Holds (Two-Phase Payments)](#6-holds-two-phase-payments)
+    - [Creating a hold via widget](#creating-a-hold-via-widget)
+    - [Creating a hold host-to-host](#creating-a-hold-host-to-host)
+    - [Settling a hold](#settling-a-hold)
+    - [Cancelling a hold](#cancelling-a-hold)
+    - [Hold statuses and lifecycle](#hold-statuses-and-lifecycle)
   - [P2P Credit (Payouts)](#7-p2p-credit-payouts)
   - [P2P Account Transfer](#8-p2p-account-transfer)
   - [Card Verification](#9-card-verification)
@@ -53,7 +58,10 @@ Add credentials to `.env`:
 WAYFORPAY_MERCHANT_ACCOUNT=your_merchant_login
 WAYFORPAY_SECRET_KEY=your_secret_key
 WAYFORPAY_MERCHANT_DOMAIN=your_domain.com
+WAYFORPAY_HOLD_TIMEOUT=1728000
 ```
+
+`WAYFORPAY_HOLD_TIMEOUT` is the default `holdTimeout` (in seconds) used by `hold()`/`holdCharge()` when `Transaction::$holdTimeout` is not set. An invalid value (outside 60..1728000) surfaces as an `InvalidArgumentException` at `hold()`/`holdCharge()` call time, not at application boot.
 
 ---
 
@@ -153,6 +161,8 @@ WayForPay::removeInvoice('ORDER_123');
 
 > **Warning:** Requires PCI DSS compliance when handling raw card data server-side.
 
+For the AUTH (hold) variant of a direct charge, see [Creating a hold host-to-host](#creating-a-hold-host-to-host).
+
 ```php
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Enums\ReasonCode;
@@ -208,11 +218,128 @@ WayForPay::refund('ORDER_123', 50.00, 'UAH', 'Customer return');
 
 ### 6. Holds (Two-Phase Payments)
 
-Settle a previously authorized hold:
+A hold (AUTH) freezes funds on the customer's card without capturing them. You create the hold first, then either **settle** it (capture some or all of the frozen amount) or **cancel** it (release the funds). Typical uses: marketplace bookings that need confirmation before charging, rental deposits, or any flow where the final amount is only known after the AUTH step. See the [WayForPay wiki](https://wiki.wayforpay.com/view/852113) for the underlying API contract.
+
+`holdTimeout` controls how long WayForPay keeps the hold active:
+
+| | Value |
+|---|---|
+| Unit | seconds |
+| Default | `1728000` (20 days) |
+| Minimum | `60` |
+| Maximum | `1728000` |
 
 ```php
-WayForPay::settle('ORDER_123', 100.50, 'UAH');
+$transaction = new Transaction(
+    orderReference: 'HOLD_' . time(),
+    amount: 100.50,
+    currency: 'UAH',
+    orderDate: time(),
+    holdTimeout: 7 * 86400, // 7 days
+);
+$transaction->addProduct(new Product('Booking deposit', 100.50, 1));
 ```
+
+> **Warning:** 3DS is not supported for holds. If `merchantTransactionSecureType=3DS` is used, WayForPay returns `InProcessing` with `reasonCode` 5100 and requires a `COMPLETE_3DS` follow-up call that this package does not implement. `holdCharge()` always runs in `AUTO` mode. Consumers should check `ReasonCode::isPending()` on the response before treating it as final.
+
+> **Warning:** Without a `settle()` call, WayForPay auto-cancels the hold within up to 21 calendar days. `holdTimeout` itself caps at 20 days (1728000 seconds) — it cannot be used to extend the window past that.
+
+> **Warning:** Holds are **incompatible** with installment payment systems (`payParts`, `payPartsMono`, `payPartsPrivat`, ...). For those, the bank pays the merchant immediately and collects from the buyer in instalments, so there is nothing to freeze. Use `purchase()` + `refund()` instead.
+
+> **Warning:** On the widget path, `merchantTransactionType` and `holdTimeout` are **not** part of the HMAC signature, so a determined client can tamper with them in the browser before submitting the form. Never base fulfilment decisions (shipping goods, granting access) on the synchronous response or on the assumption that the submitted form values were honoured — rely on the `transactionStatus` received via the signed webhook or via `checkStatus()` instead.
+
+#### Creating a hold via widget
+
+```php
+$html = WayForPay::hold(
+    $transaction,
+    returnUrl: 'https://myshop.com/payment/success',
+    serviceUrl: 'https://myshop.com/api/wayforpay/callback'
+);
+
+return response($html);
+```
+
+The generated form sends `merchantTransactionType=AUTH` and `holdTimeout` in addition to the regular purchase fields. For custom rendering, use `getHoldFormData()` the same way as `getPurchaseFormData()`:
+
+```php
+$formData = WayForPay::getHoldFormData($transaction, $returnUrl, $serviceUrl);
+```
+
+#### Creating a hold host-to-host
+
+> **Warning:** Requires PCI DSS compliance when handling raw card data server-side.
+
+```php
+$response = WayForPay::holdCharge($transaction, $card);
+
+$code = ReasonCode::tryFrom((int) $response['reasonCode']);
+if ($code?->isPending()) {
+    // AUTH is still in progress (e.g. WAIT_3DS_DATA, TRANSACTION_IN_PROCESSING) — do not treat as final yet
+} elseif ($code?->isSuccess()) {
+    // AUTH accepted synchronously — the hold is in place
+}
+```
+
+Neither branch is a substitute for the webhook: always confirm the final state via the signed webhook or `checkStatus()`.
+
+#### Settling a hold
+
+Capture the full authorized amount:
+
+```php
+WayForPay::settle('HOLD_123', 100.50, 'UAH');
+```
+
+Capture a partial amount — the remainder is automatically released back to the customer:
+
+```php
+WayForPay::settle('HOLD_123', 60.00, 'UAH');
+```
+
+Optionally attach line items:
+
+```php
+WayForPay::settle('HOLD_123', 60.00, 'UAH', products: [
+    new Product('Booking deposit', 60.00, 1),
+]);
+```
+
+The package does **not** validate that `sum(price * count)` matches `amount`, nor that `amount` does not exceed the original AUTH amount — it has no local state about the hold. WayForPay validates both server-side and rejects mismatches with a non-success `reasonCode`, which surfaces as a `WayForPayException`.
+
+#### Cancelling a hold
+
+> **Warning:** `cancelHold()` is not a safe no-op. On an already-settled transaction it performs a **real refund** of captured funds, because it is the same `REFUND` operation under the hood. Verify the transaction is still held (e.g. `checkStatus()` + `TransactionStatus::isHold()`) before calling it.
+
+```php
+WayForPay::cancelHold('HOLD_123', 100.50, 'UAH');
+```
+
+`cancelHold()` is a semantic alias for the same `REFUND` operation used elsewhere in this package — calling `refund()` directly on a held transaction releases the hold just as well.
+
+#### Hold statuses and lifecycle
+
+| Status | Meaning |
+|---|---|
+| `WaitingAuthComplete` | Hold created, awaiting settle or cancellation |
+| `WaitingAmountConfirm` | Awaiting amount confirmation (also used outside holds) |
+| `Approved` | Settled (captured) or otherwise completed |
+| `Expired` | Auto-cancelled without a `settle()` call |
+| `Refunded` | Cancelled via `cancelHold()`/`refund()` |
+
+```php
+use AratKruglik\WayForPay\Enums\TransactionStatus;
+
+Event::listen(WayForPayCallbackReceived::class, function ($event) {
+    $status = TransactionStatus::tryFrom($event->data['transactionStatus']);
+
+    if ($status?->isHold()) {
+        // Hold is still open — neither settled nor cancelled yet
+    }
+});
+```
+
+The synchronous `transactionStatus` returned immediately after creating a hold is not guaranteed by WayForPay's documentation to be one specific value — do not build logic around a single expected status; use `isHold()` instead.
 
 ### 7. P2P Credit (Payouts)
 
@@ -445,6 +572,18 @@ $balance = Mms::merchantBalance();
 // With date filter (dd.mm.yyyy format)
 $balance = Mms::merchantBalance('01.01.2026');
 ```
+
+---
+
+## Upgrading from 1.x to 2.0
+
+Version 2.0 adds hold (two-phase payment) support and is a deliberate semver BC-break in the `WayForPayInterface` contract:
+
+- **`WayForPayInterface` gained new methods** (`hold`, `getHoldFormData`, `holdCharge`, `cancelHold`). Any external implementation of this interface (e.g. a test double or a decorator) must implement them too, or it will no longer compile against the interface.
+- **`settle()` gained an optional 4th argument** (`?array $products = null`). Existing 3-argument calls remain unaffected.
+- **`TransactionStatus` gained a new case** (`WAITING_AUTH_COMPLETE`) and a new `isHold()` method. `isFinal()`/`isSuccess()` behavior for existing cases is unchanged.
+- **`ReasonCode` gained three new cases** (`TRANSACTION_IN_PROCESSING`, `WAIT_3DS_DATA`, `WAITING_AMOUNT_CONFIRM`) and a new `isPending()` method. `HandlesApiResponse::parseResponse()` now treats pending codes as non-error, so responses carrying these codes no longer throw `WayForPayException`.
+- **New guard on `holdTimeout`**: passing a `Transaction` with `holdTimeout` set into `purchase()`, `getPurchaseFormData()`, `charge()`, or `createInvoice()` now throws `InvalidArgumentException`. `holdTimeout` is only valid for `hold()`, `getHoldFormData()`, and `holdCharge()`.
 
 ---
 

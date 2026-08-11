@@ -31,11 +31,11 @@
 | Requirement | Version |
 |-------------|---------|
 | PHP | ^8.2 |
-| Laravel | ^11.0 \| ^12.0 |
-| `illuminate/support` | ^11.0 \| ^12.0 |
-| `illuminate/http` | ^11.0 \| ^12.0 |
+| Laravel | ^11.0 \| ^12.0 \| ^13.0 |
+| `illuminate/support` | ^11.0 \| ^12.0 \| ^13.0 |
+| `illuminate/http` | ^11.0 \| ^12.0 \| ^13.0 |
 
-**Dev dependencies:** Orchestra Testbench ^9.0\|^10.0, Pest ^4.0 with Laravel and Mutate plugins.
+**Dev dependencies:** Orchestra Testbench ^9.0\|^10.0, Pest ^5.0 with Laravel and Mutate plugins.
 
 **External SDK dependencies:** None. All HTTP communication uses Laravel's built-in HTTP client.
 
@@ -93,6 +93,7 @@ Published via: `php artisan vendor:publish --tag=wayforpay-config`
 | `secret_key` | `WAYFORPAY_SECRET_KEY` | `''` | Secret key for HMAC signatures and Regular API password |
 | `merchant_domain` | `WAYFORPAY_MERCHANT_DOMAIN` | `''` | Merchant domain name |
 | `timeout` | `WAYFORPAY_TIMEOUT` | `30` | HTTP request timeout in seconds |
+| `default_hold_timeout` | `WAYFORPAY_HOLD_TIMEOUT` | `null` | Default `holdTimeout` (seconds) used by `hold()`/`holdCharge()` when `Transaction::$holdTimeout` is not set |
 | `debug` | `WAYFORPAY_DEBUG` | `false` | Enable request/response logging |
 
 ## 6. Integration Patterns
@@ -155,6 +156,7 @@ Event::listen(WayForPayCallbackReceived::class, function ($event) {
 | `dateEnd` | `?string` | No | - |
 | `regularCount` | `?int` | No | >= 1 |
 | `regularAmount` | `?float` | No | > 0 |
+| `holdTimeout` | `?int` | No | Between 60 and 1728000 (seconds); only valid for hold operations |
 
 Products are added via `addProduct(Product)` or `setProducts(Product[])`. At least one product is required when `getProducts()` is called.
 
@@ -270,12 +272,13 @@ Peer-to-peer credit transfer to a card.
 
 ### 8.9 settle
 
-Settles (captures) a previously authorized transaction.
+Settles (captures) a previously authorized transaction, in full or in part.
 
-- **Method:** `settle(string orderReference, float amount, string currency): array`
+- **Method:** `settle(string orderReference, float amount, string currency, ?array $products = null): array`
 - **Endpoint:** `https://api.wayforpay.com/api`
 - **Transaction type:** `SETTLE`
 - **Signature fields:** merchantAccount, orderReference, amount, currency
+- **Optional fields:** `productName[]`, `productPrice[]`, `productCount[]` — sent only when `$products` is a non-empty `Product[]` array; not part of the signature
 - **Returns:** API response array
 
 ### 8.10 verifyCard
@@ -312,6 +315,46 @@ Permanently removes a recurring subscription.
 - **Method:** `removeRecurring(string orderReference): array`
 - **Endpoint:** `https://api.wayforpay.com/regularApi`
 - **Auth:** merchantPassword
+- **Returns:** API response array
+
+### 8.14 hold
+
+Generates an auto-submitting HTML form that creates a hold (AUTH) via WayForPay's hosted payment page.
+
+- **Method:** `hold(Transaction, ?returnUrl, ?serviceUrl): string`
+- **Endpoint:** `https://secure.wayforpay.com/pay` (browser POST)
+- **Transaction type:** `merchantTransactionType=AUTH` (not part of the signature)
+- **Signature fields:** Same as purchase
+- **Returns:** HTML string
+
+### 8.15 getHoldFormData
+
+Returns raw form data array for a hold, for custom form rendering.
+
+- **Method:** `getHoldFormData(Transaction, ?returnUrl, ?serviceUrl): array`
+- **Signature fields:** Same as purchase; `merchantTransactionType` and `holdTimeout` are not signed
+- **Returns:** Associative array of form fields
+
+### 8.16 holdCharge
+
+Server-to-server AUTH charge that creates a hold (requires PCI DSS compliance).
+
+- **Method:** `holdCharge(Transaction, Card, ?serviceUrl): array`
+- **Endpoint:** `https://api.wayforpay.com/api`
+- **Transaction type:** `CHARGE`
+- **Merchant transaction type:** `AUTH`
+- **Merchant transaction secure type:** `AUTO` (COMPLETE_3DS flow is not implemented)
+- **Signature fields:** Same as charge
+- **Returns:** API response array
+
+### 8.17 cancelHold
+
+Cancels a hold by delegating to `refund()`.
+
+- **Method:** `cancelHold(string orderReference, float amount, string currency, string comment = 'Hold cancelled'): array`
+- **Endpoint:** `https://api.wayforpay.com/api`
+- **Transaction type:** `REFUND`
+- **Signature fields:** Same as refund
 - **Returns:** API response array
 
 ## 9. Webhook Handling
@@ -401,8 +444,11 @@ The secret key is loaded from environment variables via Laravel config and never
 | `REGULAR_NOT_FOUND` | 4101 | Subscription not found |
 | `REGULAR_ALREADY_ACTIVE` | 4102 | Subscription already active |
 | `REGULAR_SUSPENDED` | 4103 | Subscription suspended |
+| `TRANSACTION_IN_PROCESSING` | 1131 | Transaction is in processing |
+| `WAIT_3DS_DATA` | 5100 | Waiting for 3DS authentication data |
+| `WAITING_AMOUNT_CONFIRM` | 5105 | Waiting for amount confirmation (hold) |
 
-**Methods:** `isSuccess(): bool` (true for OK and REGULAR_OK), `getDescription(): string`
+**Methods:** `isSuccess(): bool` (true for OK and REGULAR_OK), `isPending(): bool` (true for TRANSACTION_IN_PROCESSING, WAIT_3DS_DATA, WAITING_AMOUNT_CONFIRM — treated as non-error in `parseResponse()`), `getDescription(): string`
 
 ### TransactionStatus (string-backed)
 
@@ -416,9 +462,10 @@ The secret key is loaded from environment variables via Laravel config and never
 | `REFUNDED` | `Refunded` |
 | `VOIDED` | `Voided` |
 | `WAITING_CONFIRM` | `WaitingAmountConfirm` |
+| `WAITING_AUTH_COMPLETE` | `WaitingAuthComplete` |
 | `ACCEPT` | `accept` |
 
-**Methods:** `isFinal(): bool` (true for Approved, Declined, Expired, Refunded, Voided), `isSuccess(): bool` (true for Approved, Refunded, Accept)
+**Methods:** `isFinal(): bool` (true for Approved, Declined, Expired, Refunded, Voided), `isSuccess(): bool` (true for Approved, Refunded, Accept), `isHold(): bool` (true for WaitingAuthComplete, WaitingAmountConfirm)
 
 ## 12. Exception Handling
 
@@ -514,9 +561,8 @@ vendor/bin/pest --mutate           # Mutation testing
 1. **Debug mode not implemented**: The `debug` config option is defined but not used in the current implementation.
 2. **No automatic retry**: Failed API requests are not retried. Applications should implement retry logic if needed.
 3. **Single-merchant only**: One set of credentials per application. Multi-merchant setups require custom service provider overrides.
-4. **Hardcoded SALE type**: The `charge()` method hardcodes `merchantTransactionType` as `SALE`. AUTH (pre-authorization) is not exposed as a parameter.
-5. **No webhook route registration**: The package provides `WebhookController` but does not register routes automatically. Applications must define the route manually.
-6. **No idempotency handling**: Duplicate webhook deliveries are not deduplicated by the package.
+4. **No webhook route registration**: The package provides `WebhookController` but does not register routes automatically. Applications must define the route manually.
+5. **No idempotency handling**: Duplicate webhook deliveries are not deduplicated by the package.
 
 ## 17. Glossary
 
@@ -533,3 +579,6 @@ vendor/bin/pest --mutate           # Mutation testing
 | **settle** | Capture a previously authorized (but not yet settled) transaction |
 | **3DS** | 3-D Secure - cardholder authentication protocol |
 | **Luhn check** | Checksum algorithm for validating card numbers |
+| **hold** | A two-phase payment where funds are frozen (AUTH) without being captured, until a later `settle()` or `cancelHold()` |
+| **holdTimeout** | Seconds WayForPay keeps a hold active before auto-cancelling it (60..1728000) |
+| **AUTH** | `merchantTransactionType` value that creates a hold instead of an immediate sale (`SALE`) |

@@ -167,6 +167,45 @@ test('webhook response contains valid signature', function () {
     expect($response['signature'])->toBe($expectedSignature);
 });
 
+test('webhook accepts WaitingAuthComplete status and dispatches event carrying it', function () {
+    Event::fake([WayForPayCallbackReceived::class]);
+
+    $signatureGenerator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+    $service = new WayForPayService($signatureGenerator, Http::getFacadeRoot());
+
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'orderReference' => 'ORD_HOLD',
+        'amount' => '100.00',
+        'currency' => 'UAH',
+        'authCode' => '123456',
+        'cardPan' => '4111****1111',
+        'transactionStatus' => 'WaitingAuthComplete',
+        'reasonCode' => '5105',
+    ];
+
+    $signatureParams = [
+        'merchantAccount' => $data['merchantAccount'],
+        'orderReference' => $data['orderReference'],
+        'amount' => $data['amount'],
+        'currency' => $data['currency'],
+        'authCode' => $data['authCode'],
+        'cardPan' => $data['cardPan'],
+        'transactionStatus' => $data['transactionStatus'],
+        'reasonCode' => $data['reasonCode'],
+    ];
+
+    $data['merchantSignature'] = $signatureGenerator->generateForServiceUrl($signatureParams);
+
+    $response = $service->handleWebhook($data);
+
+    expect($response['orderReference'])->toBe('ORD_HOLD');
+
+    Event::assertDispatched(WayForPayCallbackReceived::class, function ($event) {
+        return $event->data['transactionStatus'] === 'WaitingAuthComplete';
+    });
+});
+
 test('webhook handles optional fields gracefully', function () {
     Event::fake([WayForPayCallbackReceived::class]);
 

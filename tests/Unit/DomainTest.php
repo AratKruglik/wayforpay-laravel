@@ -112,6 +112,31 @@ test('transaction throws exception for invalid order date', function () {
     new Transaction('ORD1', 100.0, 'UAH', -1);
 })->throws(InvalidArgumentException::class, 'Order date must be a valid Unix timestamp');
 
+// holdTimeout tests
+
+test('transaction accepts holdTimeout at minimum boundary', function () {
+    $transaction = new Transaction('ORD1', 100.0, 'UAH', time(), holdTimeout: 60);
+    expect($transaction->holdTimeout)->toBe(60);
+});
+
+test('transaction accepts holdTimeout at maximum boundary', function () {
+    $transaction = new Transaction('ORD1', 100.0, 'UAH', time(), holdTimeout: 1728000);
+    expect($transaction->holdTimeout)->toBe(1728000);
+});
+
+test('transaction accepts null holdTimeout', function () {
+    $transaction = new Transaction('ORD1', 100.0, 'UAH', time());
+    expect($transaction->holdTimeout)->toBeNull();
+});
+
+test('transaction throws exception for holdTimeout below minimum', function () {
+    new Transaction('ORD1', 100.0, 'UAH', time(), holdTimeout: 59);
+})->throws(InvalidArgumentException::class, 'Hold timeout must be between 60 and 1728000');
+
+test('transaction throws exception for holdTimeout above maximum', function () {
+    new Transaction('ORD1', 100.0, 'UAH', time(), holdTimeout: 1728001);
+})->throws(InvalidArgumentException::class, 'Hold timeout must be between 60 and 1728000');
+
 // Card tests
 
 test('card dto creates correctly with valid data', function () {
@@ -154,4 +179,11 @@ test('card accepts 4-digit CVV (AMEX)', function () {
     // AMEX test card that passes Luhn
     $card = new Card('378282246310005', '12', '25', '1234');
     expect($card->cvv)->toBe('1234');
+});
+
+test('card debugInfo masks sensitive data', function () {
+    $card = new Card('4111111111111111', '12', '25', '123');
+    $debug = $card->__debugInfo();
+    expect($debug['cardNumber'])->toBe('************1111')
+        ->and($debug['cvv'])->toBe('***');
 });
