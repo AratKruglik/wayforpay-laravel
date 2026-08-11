@@ -27,9 +27,23 @@ enum ReasonCode: int
     case REGULAR_ALREADY_ACTIVE = 4102;
     case REGULAR_SUSPENDED = 4103;
 
+    // Hold (AUTH) related codes
+    case TRANSACTION_IN_PROCESSING = 1131;
+    case WAIT_3DS_DATA = 5100;
+    case WAITING_AMOUNT_CONFIRM = 5105;
+
     public function isSuccess(): bool
     {
         return $this === self::OK || $this === self::REGULAR_OK;
+    }
+
+    public function isPending(): bool
+    {
+        return in_array($this, [
+            self::TRANSACTION_IN_PROCESSING,
+            self::WAIT_3DS_DATA,
+            self::WAITING_AMOUNT_CONFIRM,
+        ]);
     }
 
     public function getDescription(): string
@@ -53,6 +67,9 @@ enum ReasonCode: int
             self::REGULAR_NOT_FOUND => 'Subscription not found',
             self::REGULAR_ALREADY_ACTIVE => 'Subscription already active',
             self::REGULAR_SUSPENDED => 'Subscription suspended',
+            self::TRANSACTION_IN_PROCESSING => 'Transaction is in processing',
+            self::WAIT_3DS_DATA => 'Waiting for 3DS authentication data',
+            self::WAITING_AMOUNT_CONFIRM => 'Waiting for amount confirmation (hold)',
         };
     }
 }

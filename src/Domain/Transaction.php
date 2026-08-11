@@ -11,6 +11,8 @@ class Transaction
 {
     use ValidatesOrderReference;
     private const VALID_CURRENCIES = ['UAH', 'USD', 'EUR', 'PLN', 'GBP'];
+    public const HOLD_TIMEOUT_MIN = 60;
+    public const HOLD_TIMEOUT_MAX = 1728000;
 
     /** @var Product[] */
     private array $products = [];
@@ -30,7 +32,8 @@ class Transaction
         public readonly ?string $dateNext = null,
         public readonly ?string $dateEnd = null,
         public readonly ?int $regularCount = null,
-        public readonly ?float $regularAmount = null
+        public readonly ?float $regularAmount = null,
+        public readonly ?int $holdTimeout = null
     ) {
         $this->validate();
     }
@@ -45,6 +48,7 @@ class Transaction
         $this->validatePositive($this->orderLifetime, 'Order lifetime');
         $this->validatePositive($this->regularAmount, 'Regular amount');
         $this->validateMinimum($this->regularCount, 'Regular count', 1);
+        $this->validateRange($this->holdTimeout, 'Hold timeout', self::HOLD_TIMEOUT_MIN, self::HOLD_TIMEOUT_MAX);
     }
 
     private function validateCurrency(): void
@@ -74,6 +78,17 @@ class Transaction
     {
         if ($value !== null && $value < $minimum) {
             throw new InvalidArgumentException("{$fieldName} must be at least {$minimum}");
+        }
+    }
+
+    private function validateRange(?int $value, string $fieldName, int $min, int $max): void
+    {
+        if ($value === null) {
+            return;
+        }
+
+        if ($value < $min || $value > $max) {
+            throw new InvalidArgumentException("{$fieldName} must be between {$min} and {$max}");
         }
     }
 

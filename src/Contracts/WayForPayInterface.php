@@ -11,20 +11,30 @@ use AratKruglik\WayForPay\Domain\Transaction;
 interface WayForPayInterface
 {
     public function purchase(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): string;
-    
+
+    public function getPurchaseFormData(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array;
+
+    public function hold(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): string;
+
+    public function getHoldFormData(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array;
+
     public function createInvoice(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array;
-    
+
     public function removeInvoice(string $orderReference): array;
-    
+
     public function charge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array;
-    
+
+    public function holdCharge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array;
+
     public function checkStatus(string $orderReference): array;
-    
+
     public function refund(string $orderReference, float $amount, string $currency, string $comment): array;
 
+    public function cancelHold(string $orderReference, float $amount, string $currency, string $comment = 'Hold cancelled'): array;
+
     public function p2pCredit(string $orderReference, float $amount, string $currency, string $cardBeneficiary, ?string $rec2Token = null): array;
-    
-    public function settle(string $orderReference, float $amount, string $currency): array;
+
+    public function settle(string $orderReference, float $amount, string $currency, ?array $products = null): array;
 
     public function verifyCard(string $orderReference, string $currency = 'UAH'): string;
 

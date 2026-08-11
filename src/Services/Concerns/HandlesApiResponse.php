@@ -26,7 +26,9 @@ trait HandlesApiResponse
 
         if (isset($json['reasonCode'])) {
             $code = ReasonCode::tryFrom((int) $json['reasonCode']);
-            if ($code && !$code->isSuccess()) {
+            // Pending codes (e.g. hold WaitingAmountConfirm) are neither success nor failure
+            // and must not be treated as an error response.
+            if ($code && !$code->isSuccess() && !$code->isPending()) {
                 throw new WayForPayException(
                     message: $json['reason'] ?? $code->getDescription(),
                     reasonCode: $code,

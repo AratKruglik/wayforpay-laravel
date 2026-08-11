@@ -12,6 +12,7 @@ This directory contains the Architecture Decision Records (ADRs) for the `aratkr
 | [ADR-0004](0004-constructor-validated-readonly-dtos.md) | Constructor-validated readonly domain objects | Accepted |
 | [ADR-0005](0005-event-driven-webhook-processing.md) | Event-driven webhook processing with signed acknowledgment | Accepted |
 | [ADR-0006](0006-dual-authentication-modes.md) | Dual authentication modes (HMAC vs merchantPassword) | Accepted |
+| [ADR-0007](0007-two-phase-holds-via-dedicated-methods.md) | Two-phase holds via dedicated hold*() methods | Accepted |
 
 ## ADR Format
 

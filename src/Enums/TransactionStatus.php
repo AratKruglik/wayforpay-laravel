@@ -14,7 +14,8 @@ enum TransactionStatus: string
     case REFUNDED = 'Refunded';
     case VOIDED = 'Voided';
     case WAITING_CONFIRM = 'WaitingAmountConfirm';
-    
+    case WAITING_AUTH_COMPLETE = 'WaitingAuthComplete';
+
     // Callback specific
     case ACCEPT = 'accept';
 
@@ -32,5 +33,13 @@ enum TransactionStatus: string
     public function isSuccess(): bool
     {
         return $this === self::APPROVED || $this === self::REFUNDED || $this === self::ACCEPT;
+    }
+
+    public function isHold(): bool
+    {
+        return in_array($this, [
+            self::WAITING_AUTH_COMPLETE,
+            self::WAITING_CONFIRM,
+        ]);
     }
 }

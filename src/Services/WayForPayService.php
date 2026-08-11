@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Config;
 use AratKruglik\WayForPay\Contracts\WayForPayInterface;
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
+use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
 use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
 use AratKruglik\WayForPay\Exceptions\WayForPayException;
@@ -28,11 +29,16 @@ class WayForPayService implements WayForPayInterface
     private const DEFAULT_PAYMENT_SYSTEM = 'card';
     private const WEBHOOK_REQUIRED_FIELDS = ['merchantAccount', 'orderReference', 'transactionStatus', 'merchantSignature'];
     private const WEBHOOK_SIGNATURE_FIELDS = ['merchantAccount', 'orderReference', 'amount', 'currency', 'authCode', 'cardPan', 'transactionStatus', 'reasonCode'];
+    private const TRANSACTION_TYPE_AUTH = 'AUTH';
+    private const TRANSACTION_TYPE_SALE = 'SALE';
+    private const HOLD_TIMEOUT_NOT_ALLOWED_MESSAGE =
+        'holdTimeout is only supported for hold (AUTH) operations. Use hold(), getHoldFormData() or holdCharge().';
 
     private string $merchantAccount;
     private string $merchantDomain;
     private string $secretKey;
     private int $timeout;
+    private ?int $defaultHoldTimeout;
     private string $baseUrl = 'https://api.wayforpay.com/api';
 
     public function __construct(
@@ -43,6 +49,9 @@ class WayForPayService implements WayForPayInterface
         $this->merchantDomain = Config::get('wayforpay.merchant_domain');
         $this->secretKey = Config::get('wayforpay.secret_key');
         $this->timeout = (int) Config::get('wayforpay.timeout', 30);
+
+        $rawDefaultHoldTimeout = Config::get('wayforpay.default_hold_timeout');
+        $this->defaultHoldTimeout = $rawDefaultHoldTimeout === null ? null : (int) $rawDefaultHoldTimeout;
     }
 
     public function purchase(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): string
@@ -54,7 +63,25 @@ class WayForPayService implements WayForPayInterface
 
     public function getPurchaseFormData(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array
     {
-        $data = $this->prepareTransactionData($transaction);
+        return $this->buildPurchaseFormData($transaction, $returnUrl, $serviceUrl, isHold: false);
+    }
+
+    public function hold(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): string
+    {
+        return $this->generateAutoSubmitForm($this->getHoldFormData($transaction, $returnUrl, $serviceUrl));
+    }
+
+    public function getHoldFormData(Transaction $transaction, ?string $returnUrl = null, ?string $serviceUrl = null): array
+    {
+        $payload = $this->buildPurchaseFormData($transaction, $returnUrl, $serviceUrl, isHold: true);
+        $payload['merchantTransactionType'] = self::TRANSACTION_TYPE_AUTH;
+
+        return $payload;
+    }
+
+    private function buildPurchaseFormData(Transaction $transaction, ?string $returnUrl, ?string $serviceUrl, bool $isHold): array
+    {
+        $data = $this->prepareTransactionData($transaction, $isHold);
         $signature = $this->signatureGenerator->generateForPurchase($data);
 
         $payload = array_merge($data, [
@@ -169,15 +196,25 @@ HTML;
     
     public function charge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array
     {
-        $data = $this->prepareTransactionData($transaction);
+        return $this->sendCharge($transaction, $card, isHold: false, serviceUrl: $serviceUrl);
+    }
+
+    public function holdCharge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array
+    {
+        return $this->sendCharge($transaction, $card, isHold: true, serviceUrl: $serviceUrl);
+    }
+
+    private function sendCharge(Transaction $transaction, Card $card, bool $isHold, ?string $serviceUrl): array
+    {
+        $data = $this->prepareTransactionData($transaction, $isHold);
         $data['transactionType'] = 'CHARGE';
-        $data['merchantTransactionType'] = 'SALE';
+        $data['merchantTransactionType'] = $isHold ? self::TRANSACTION_TYPE_AUTH : self::TRANSACTION_TYPE_SALE;
         $data['merchantTransactionSecureType'] = 'AUTO';
         $data['apiVersion'] = 1;
-        
+
         $data = array_merge($data, $card->toArray());
         $data['merchantSignature'] = $this->signatureGenerator->generateForCharge($data);
-        
+
         if ($transaction->client) {
             $data = array_merge($data, $transaction->client->toArray());
             if (!isset($data['clientIpAddress'])) {
@@ -187,11 +224,11 @@ HTML;
         if ($serviceUrl) {
             $data['serviceUrl'] = $serviceUrl;
         }
-        
+
         return $this->sendRequest($data);
     }
 
-    private function prepareTransactionData(Transaction $transaction): array
+    private function prepareTransactionData(Transaction $transaction, bool $isHold = false): array
     {
         $products = $transaction->getProducts();
 
@@ -220,7 +257,27 @@ HTML;
             'regularAmount' => $transaction->regularAmount,
         ];
 
+        if ($isHold) {
+            $optionalFields['holdTimeout'] = $this->resolveHoldTimeout($transaction);
+        } elseif ($transaction->holdTimeout !== null) {
+            throw new InvalidArgumentException(self::HOLD_TIMEOUT_NOT_ALLOWED_MESSAGE);
+        }
+
         return array_merge($data, array_filter($optionalFields, fn($value) => $value !== null));
+    }
+
+    private function resolveHoldTimeout(Transaction $transaction): ?int
+    {
+        $value = $transaction->holdTimeout ?? $this->defaultHoldTimeout;
+
+        if ($value !== null && ($value < Transaction::HOLD_TIMEOUT_MIN || $value > Transaction::HOLD_TIMEOUT_MAX)) {
+            throw new InvalidArgumentException(
+                "Hold timeout must be between " . Transaction::HOLD_TIMEOUT_MIN . " and " . Transaction::HOLD_TIMEOUT_MAX
+                . " seconds. Check Transaction::\$holdTimeout or the wayforpay.default_hold_timeout config value."
+            );
+        }
+
+        return $value;
     }
 
     public function checkStatus(string $orderReference): array
@@ -253,7 +310,12 @@ HTML;
 
         return $this->sendRequest($data);
     }
-    
+
+    public function cancelHold(string $orderReference, float $amount, string $currency, string $comment = 'Hold cancelled'): array
+    {
+        return $this->refund($orderReference, $amount, $currency, $comment);
+    }
+
     public function p2pCredit(string $orderReference, float $amount, string $currency, string $cardBeneficiary, ?string $rec2Token = null): array
     {
         $data = [
@@ -272,7 +334,7 @@ HTML;
         return $this->sendRequest($data);
     }
 
-    public function settle(string $orderReference, float $amount, string $currency): array
+    public function settle(string $orderReference, float $amount, string $currency, ?array $products = null): array
     {
         $data = [
             'transactionType' => 'SETTLE',
@@ -282,9 +344,20 @@ HTML;
             'currency' => $currency,
             'apiVersion' => 1,
         ];
-        
+
         $data['merchantSignature'] = $this->signatureGenerator->generateForSettle($data);
-        
+
+        if ($products !== null && $products !== []) {
+            foreach ($products as $product) {
+                if (!$product instanceof Product) {
+                    throw new InvalidArgumentException('All items must be instances of Product');
+                }
+            }
+            $data['productName'] = array_map(fn($product) => $product->name, $products);
+            $data['productPrice'] = array_map(fn($product) => $product->price, $products);
+            $data['productCount'] = array_map(fn($product) => $product->count, $products);
+        }
+
         return $this->sendRequest($data);
     }
     
