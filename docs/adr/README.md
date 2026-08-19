@@ -13,6 +13,7 @@ This directory contains the Architecture Decision Records (ADRs) for the `aratkr
 | [ADR-0005](0005-event-driven-webhook-processing.md) | Event-driven webhook processing with signed acknowledgment | Accepted |
 | [ADR-0006](0006-dual-authentication-modes.md) | Dual authentication modes (HMAC vs merchantPassword) | Accepted |
 | [ADR-0007](0007-two-phase-holds-via-dedicated-methods.md) | Two-phase holds via dedicated hold*() methods | Accepted |
+| [ADR-0008](0008-token-based-charging.md) | Token-based charging via recToken (merchant-initiated) | Accepted |
 
 ## ADR Format
 

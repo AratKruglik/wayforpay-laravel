@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Facade;
  * @method static array removeInvoice(string $orderReference)
  * @method static array charge(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\Card $card, ?string $serviceUrl = null)
  * @method static array holdCharge(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\Card $card, ?string $serviceUrl = null)
+ * @method static array chargeWithToken(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\CardToken $token, ?string $serviceUrl = null)
+ * @method static array holdChargeWithToken(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\CardToken $token, ?string $serviceUrl = null)
  * @method static array checkStatus(string $orderReference)
  * @method static array refund(string $orderReference, float $amount, string $currency, string $comment)
  * @method static array cancelHold(string $orderReference, float $amount, string $currency, string $comment = 'Hold cancelled')

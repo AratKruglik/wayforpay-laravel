@@ -24,10 +24,11 @@ Supports **Laravel 11.x-13.x** and **PHP 8.2+**.
     - [Settling a hold](#settling-a-hold)
     - [Cancelling a hold](#cancelling-a-hold)
     - [Hold statuses and lifecycle](#hold-statuses-and-lifecycle)
-  - [P2P Credit (Payouts)](#7-p2p-credit-payouts)
-  - [P2P Account Transfer](#8-p2p-account-transfer)
-  - [Card Verification](#9-card-verification)
-  - [Check Status](#10-check-status)
+  - [Token-Based Charging (Merchant-Initiated)](#7-token-based-charging-merchant-initiated)
+  - [P2P Credit (Payouts)](#8-p2p-credit-payouts)
+  - [P2P Account Transfer](#9-p2p-account-transfer)
+  - [Card Verification](#10-card-verification)
+  - [Check Status](#11-check-status)
 - [Webhooks](#webhooks)
 - [Marketplace Integration (MMS API)](#marketplace-integration-mms-api)
   - [Partner Management](#partner-management)
@@ -341,7 +342,46 @@ Event::listen(WayForPayCallbackReceived::class, function ($event) {
 
 The synchronous `transactionStatus` returned immediately after creating a hold is not guaranteed by WayForPay's documentation to be one specific value — do not build logic around a single expected status; use `isHold()` instead.
 
-### 7. P2P Credit (Payouts)
+### 7. Token-Based Charging (Merchant-Initiated)
+
+Charge (or hold) a previously-saved card via WayForPay's `recToken` mechanism, **without the cardholder present**, at any moment your application chooses — e.g. exactly 24 hours before a scheduled event, or a hold placed automatically at a scheduled time rather than at booking time. This is different from `regularMode` subscriptions (§4), where WayForPay itself owns the recurring schedule; here, your application decides when to charge.
+
+> **Warning:** WayForPay's public documentation does not contain an explicit statement that `merchantTransactionType=AUTH` may be combined with `recToken`. Support for `holdChargeWithToken()` is inferred from the CHARGE parameter table (see [ADR-0008](docs/adr/0008-token-based-charging.md) for the full research trail), not from a direct confirmation of this specific combination. **Verify this combination against a WayForPay sandbox / test merchant account before relying on it in production.**
+
+**Note:** unlike [Direct Charge](#3-direct-charge-host-to-host) and [Creating a hold host-to-host](#creating-a-hold-host-to-host), token-based charging does **not** require PCI DSS compliance on your side — the raw card number never passes through your application for this path.
+
+**Note:** merchant-initiated transactions require the cardholder's consent to future charges, obtained by your application at the time the token was created (e.g. during `regularMode` setup or `verifyCard()`) — this package does not track or enforce consent.
+
+```php
+use AratKruglik\WayForPay\Domain\CardToken;
+
+$token = new CardToken($savedRecToken);
+
+// SALE — immediate withdrawal
+$response = WayForPay::chargeWithToken($transaction, $token);
+
+// AUTH — hold funds, to be settled later via settle()
+$holdTransaction = new Transaction(
+    orderReference: 'HOLD_' . time(),
+    amount: 100.50,
+    currency: 'UAH',
+    orderDate: time(),
+    holdTimeout: 7 * 86400, // 7 days
+);
+$holdTransaction->addProduct(new Product('Booking deposit', 100.50, 1));
+
+$response = WayForPay::holdChargeWithToken($holdTransaction, $token);
+// ... later, at the moment your application chooses:
+WayForPay::settle($holdTransaction->orderReference, 100.50, 'UAH');
+```
+
+**Note:** since token-based charging is typically triggered from a cron job or queue worker, there is no HTTP request context to derive `clientIpAddress` from. The package does **not** substitute a fallback IP for this path — if no `Domain\Client` is attached to the `Transaction`, `clientIpAddress` is simply omitted from the request. To send a meaningful value for WayForPay's fraud scoring, attach a `Domain\Client` carrying the IP address that was captured when the token was originally created.
+
+**Note:** generate a unique `orderReference` for every charge attempt, and prefer `checkStatus()` over blindly retrying after a network timeout — WayForPay may have already accepted the charge even if your process never saw the response.
+
+`recToken` is obtained from a `regularMode` transaction or from `verifyCard()`, and — like the rest of the raw webhook payload — is already delivered to your application unchanged via the existing `WayForPayCallbackReceived` event; see [Webhooks](#webhooks). This package does not persist tokens: storing and retrieving `recToken` for later use is your application's responsibility (it is a stateless HTTP-client wrapper, see [ADR-0001](docs/adr/0001-laravel-http-client-over-external-sdk.md)).
+
+### 8. P2P Credit (Payouts)
 
 Send funds from the merchant account to a recipient card:
 
@@ -354,7 +394,7 @@ WayForPay::p2pCredit(
 );
 ```
 
-### 8. P2P Account Transfer
+### 9. P2P Account Transfer
 
 Transfer funds to a bank account (UAH only):
 
@@ -376,7 +416,7 @@ $transfer = new AccountTransfer(
 $response = WayForPay::p2pAccount($transfer);
 ```
 
-### 9. Card Verification
+### 10. Card Verification
 
 Verify a card by blocking a small amount that is automatically reversed:
 
@@ -385,7 +425,7 @@ $url = WayForPay::verifyCard('VERIFY_ORDER_001');
 return redirect($url);
 ```
 
-### 10. Check Status
+### 11. Check Status
 
 ```php
 $status = WayForPay::checkStatus('ORDER_123');
@@ -584,6 +624,17 @@ Version 2.0 adds hold (two-phase payment) support and is a deliberate semver BC-
 - **`TransactionStatus` gained a new case** (`WAITING_AUTH_COMPLETE`) and a new `isHold()` method. `isFinal()`/`isSuccess()` behavior for existing cases is unchanged.
 - **`ReasonCode` gained three new cases** (`TRANSACTION_IN_PROCESSING`, `WAIT_3DS_DATA`, `WAITING_AMOUNT_CONFIRM`) and a new `isPending()` method. `HandlesApiResponse::parseResponse()` now treats pending codes as non-error, so responses carrying these codes no longer throw `WayForPayException`.
 - **New guard on `holdTimeout`**: passing a `Transaction` with `holdTimeout` set into `purchase()`, `getPurchaseFormData()`, `charge()`, or `createInvoice()` now throws `InvalidArgumentException`. `holdTimeout` is only valid for `hold()`, `getHoldFormData()`, and `holdCharge()`.
+
+---
+
+## Upgrading from 2.x to 3.0
+
+Version 3.0 adds token-based charging (`recToken`) support and is a deliberate semver BC-break in the `WayForPayInterface` contract:
+
+- **`WayForPayInterface` gained new methods** (`chargeWithToken`, `holdChargeWithToken`). Any external implementation of this interface (e.g. a test double or a decorator) must implement them too, or it will no longer compile against the interface.
+- **New `Domain\CardToken` DTO.** No existing DTO changed shape.
+- **`HOLD_TIMEOUT_NOT_ALLOWED_MESSAGE` gained a suffix** pointing to `holdChargeWithToken()`. The original message text is preserved as an exact prefix, so any existing string-matching against the previous message (e.g. `str_contains`) continues to work unmodified.
+- No other public method signatures changed; existing calls to `charge()`, `holdCharge()`, `purchase()`, `hold()`, etc. are unaffected.
 
 ---
 

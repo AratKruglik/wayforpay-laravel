@@ -149,6 +149,92 @@ test('generateForCharge signature is byte-identical with and without merchantTra
     expect($generator->generateForCharge($holdData))->toBe($generator->generateForCharge($baseData));
 });
 
+// AC-6: generateForCharge for a payload without a 'card' key matches the
+// explicit 9-value formula (no card fields appended).
+test('generateForCharge for token payload without card key matches 9-value formula', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'merchantDomainName' => 'www.market.ua',
+        'orderReference' => 'ORD_TOKEN_001',
+        'orderDate' => 1415379863,
+        'amount' => 100.0,
+        'currency' => 'UAH',
+        'recToken' => 'tok_abc123',
+        'productName' => ['Item'],
+        'productCount' => [1],
+        'productPrice' => [100.0],
+    ];
+
+    $signature = $generator->generateForCharge($data);
+    $expected = $generator->generate([
+        'test_merch_n1',
+        'www.market.ua',
+        'ORD_TOKEN_001',
+        1415379863,
+        100.0,
+        'UAH',
+        'Item',
+        '1',
+        '100',
+    ]);
+
+    expect($signature)->toBe($expected);
+});
+
+// AC-7: adding 'recToken' to a token-based payload does not change the signature.
+test('generateForCharge signature is unaffected by presence of recToken', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+
+    $baseData = [
+        'merchantAccount' => 'test_merch_n1',
+        'merchantDomainName' => 'www.market.ua',
+        'orderReference' => 'ORD_TOKEN_002',
+        'orderDate' => 1415379863,
+        'amount' => 100.0,
+        'currency' => 'UAH',
+        'productName' => ['Item'],
+        'productCount' => [1],
+        'productPrice' => [100.0],
+    ];
+
+    $tokenData = array_merge($baseData, ['recToken' => 'tok_xyz789']);
+
+    expect($generator->generateForCharge($tokenData))->toBe($generator->generateForCharge($baseData));
+});
+
+// Regression contrast: card-based signature differs from token-based signature
+// sharing the same non-card fields — the difference is intentional (card fields
+// are appended when present), not a bug.
+test('generateForCharge card-based signature differs from token-based signature with equivalent non-card fields', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+
+    $sharedFields = [
+        'merchantAccount' => 'test_merch_n1',
+        'merchantDomainName' => 'www.market.ua',
+        'orderReference' => 'ORD_TOKEN_003',
+        'orderDate' => 1415379863,
+        'amount' => 100.0,
+        'currency' => 'UAH',
+        'productName' => ['Item'],
+        'productCount' => [1],
+        'productPrice' => [100.0],
+    ];
+
+    $cardData = array_merge($sharedFields, [
+        'card' => '4111111111111111',
+        'expMonth' => '12',
+        'expYear' => '25',
+        'cardCvv' => '123',
+        'cardHolder' => 'John Doe',
+    ]);
+
+    $tokenData = array_merge($sharedFields, ['recToken' => 'tok_abc123']);
+
+    expect($generator->generateForCharge($cardData))->not->toBe($generator->generateForCharge($tokenData));
+});
+
 test('it generates correct signature for settle with explicit expected value', function () {
     $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
     $data = [

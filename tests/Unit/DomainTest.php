@@ -1,6 +1,7 @@
 <?php
 
 use AratKruglik\WayForPay\Domain\Card;
+use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Client;
 use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
@@ -186,4 +187,49 @@ test('card debugInfo masks sensitive data', function () {
     $debug = $card->__debugInfo();
     expect($debug['cardNumber'])->toBe('************1111')
         ->and($debug['cvv'])->toBe('***');
+});
+
+// CardToken tests
+
+test('cardToken throws exception for empty string', function () {
+    new CardToken('');
+})->throws(InvalidArgumentException::class, 'Card token cannot be empty');
+
+test('cardToken throws exception for whitespace-only string', function () {
+    new CardToken('   ');
+})->throws(InvalidArgumentException::class, 'Card token cannot be empty');
+
+test('cardToken throws exception for token exceeding max length', function () {
+    new CardToken(str_repeat('a', 256));
+})->throws(InvalidArgumentException::class, 'Card token cannot exceed 255 characters');
+
+test('cardToken throws exception for invalid characters', function () {
+    new CardToken('tok en/with spaces?');
+})->throws(InvalidArgumentException::class, 'Card token contains invalid characters');
+
+test('cardToken accepts a valid UUID-like token', function () {
+    $token = new CardToken('550e8400-e29b-41d4-a716-446655440000');
+    expect($token->getRecToken())->toBe('550e8400-e29b-41d4-a716-446655440000');
+});
+
+test('cardToken toArray returns exactly recToken key', function () {
+    $token = new CardToken('550e8400-e29b-41d4-a716-446655440000');
+    expect($token->toArray())->toBe(['recToken' => '550e8400-e29b-41d4-a716-446655440000']);
+});
+
+test('cardToken debugInfo masks middle of a long token', function () {
+    $token = new CardToken('550e8400-e29b-41d4-a716-446655440000');
+    $debug = $token->__debugInfo();
+
+    expect($debug['recToken'])->toStartWith('550e84')
+        ->and($debug['recToken'])->toEndWith('0000')
+        ->and($debug['recToken'])->not->toContain('e29b-41d4-a716');
+});
+
+test('cardToken debugInfo fully masks a short token without warning or leak', function () {
+    $token = new CardToken('abc123');
+    $debug = $token->__debugInfo();
+
+    expect($debug['recToken'])->toBe('******')
+        ->and($debug['recToken'])->not->toContain('abc123');
 });
