@@ -6,6 +6,7 @@ namespace AratKruglik\WayForPay\Contracts;
 
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
+use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Transaction;
 
 interface WayForPayInterface
@@ -25,6 +26,10 @@ interface WayForPayInterface
     public function charge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array;
 
     public function holdCharge(Transaction $transaction, Card $card, ?string $serviceUrl = null): array;
+
+    public function chargeWithToken(Transaction $transaction, CardToken $token, ?string $serviceUrl = null): array;
+
+    public function holdChargeWithToken(Transaction $transaction, CardToken $token, ?string $serviceUrl = null): array;
 
     public function checkStatus(string $orderReference): array;
 

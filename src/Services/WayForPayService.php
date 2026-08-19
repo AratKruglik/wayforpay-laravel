@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Config;
 use AratKruglik\WayForPay\Contracts\WayForPayInterface;
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
+use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
 use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
@@ -32,7 +33,8 @@ class WayForPayService implements WayForPayInterface
     private const TRANSACTION_TYPE_AUTH = 'AUTH';
     private const TRANSACTION_TYPE_SALE = 'SALE';
     private const HOLD_TIMEOUT_NOT_ALLOWED_MESSAGE =
-        'holdTimeout is only supported for hold (AUTH) operations. Use hold(), getHoldFormData() or holdCharge().';
+        'holdTimeout is only supported for hold (AUTH) operations. Use hold(), getHoldFormData() or holdCharge().'
+        . ' For token-based holds use holdChargeWithToken().';
 
     private string $merchantAccount;
     private string $merchantDomain;
@@ -204,7 +206,17 @@ HTML;
         return $this->sendCharge($transaction, $card, isHold: true, serviceUrl: $serviceUrl);
     }
 
-    private function sendCharge(Transaction $transaction, Card $card, bool $isHold, ?string $serviceUrl): array
+    public function chargeWithToken(Transaction $transaction, CardToken $token, ?string $serviceUrl = null): array
+    {
+        return $this->sendCharge($transaction, $token, isHold: false, serviceUrl: $serviceUrl);
+    }
+
+    public function holdChargeWithToken(Transaction $transaction, CardToken $token, ?string $serviceUrl = null): array
+    {
+        return $this->sendCharge($transaction, $token, isHold: true, serviceUrl: $serviceUrl);
+    }
+
+    private function sendCharge(Transaction $transaction, Card|CardToken $payable, bool $isHold, ?string $serviceUrl): array
     {
         $data = $this->prepareTransactionData($transaction, $isHold);
         $data['transactionType'] = 'CHARGE';
@@ -212,7 +224,7 @@ HTML;
         $data['merchantTransactionSecureType'] = 'AUTO';
         $data['apiVersion'] = 1;
 
-        $data = array_merge($data, $card->toArray());
+        $data = array_merge($data, $payable->toArray());
         $data['merchantSignature'] = $this->signatureGenerator->generateForCharge($data);
 
         if ($transaction->client) {
