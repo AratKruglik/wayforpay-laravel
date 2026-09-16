@@ -14,6 +14,7 @@ This directory contains the Architecture Decision Records (ADRs) for the `aratkr
 | [ADR-0006](0006-dual-authentication-modes.md) | Dual authentication modes (HMAC vs merchantPassword) | Accepted |
 | [ADR-0007](0007-two-phase-holds-via-dedicated-methods.md) | Two-phase holds via dedicated hold*() methods | Accepted |
 | [ADR-0008](0008-token-based-charging.md) | Token-based charging via recToken (merchant-initiated) | Accepted |
+| [ADR-0009](0009-verify-is-a-browser-form-post.md) | /verify is a browser form-POST endpoint | Accepted |
 
 ## ADR Format
 

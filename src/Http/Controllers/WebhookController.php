@@ -20,7 +20,7 @@ class WebhookController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         try {
-            $response = $this->service->handleWebhook($request->all());
+            $response = $this->service->handleWebhookRequest($request);
             return response()->json($response);
         } catch (SignatureMismatchException $e) {
             return response()->json([

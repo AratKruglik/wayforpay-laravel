@@ -72,6 +72,8 @@ WAYFORPAY_HOLD_TIMEOUT=1728000
 
 Generate a self-submitting HTML form that redirects the user to the WayForPay checkout page.
 
+> **Warning:** WayForPay sends the cardholder's browser back to `returnUrl` via an HTTP **POST**, not a GET. The route handling `returnUrl` must accept POST requests (and be exempt from CSRF verification, since the request originates from WayForPay, not your application), or it will respond with `405 Method Not Allowed`. This applies to every `returnUrl` used with `purchase()`, `hold()`, and `verify()`.
+
 ```php
 use AratKruglik\WayForPay\Facades\WayForPay;
 use AratKruglik\WayForPay\Domain\Transaction;
@@ -350,7 +352,7 @@ Charge (or hold) a previously-saved card via WayForPay's `recToken` mechanism, *
 
 **Note:** unlike [Direct Charge](#3-direct-charge-host-to-host) and [Creating a hold host-to-host](#creating-a-hold-host-to-host), token-based charging does **not** require PCI DSS compliance on your side — the raw card number never passes through your application for this path.
 
-**Note:** merchant-initiated transactions require the cardholder's consent to future charges, obtained by your application at the time the token was created (e.g. during `regularMode` setup or `verifyCard()`) — this package does not track or enforce consent.
+**Note:** merchant-initiated transactions require the cardholder's consent to future charges, obtained by your application at the time the token was created (e.g. during `regularMode` setup or `verify()`) — this package does not track or enforce consent.
 
 ```php
 use AratKruglik\WayForPay\Domain\CardToken;
@@ -379,7 +381,7 @@ WayForPay::settle($holdTransaction->orderReference, 100.50, 'UAH');
 
 **Note:** generate a unique `orderReference` for every charge attempt, and prefer `checkStatus()` over blindly retrying after a network timeout — WayForPay may have already accepted the charge even if your process never saw the response.
 
-`recToken` is obtained from a `regularMode` transaction or from `verifyCard()`, and — like the rest of the raw webhook payload — is already delivered to your application unchanged via the existing `WayForPayCallbackReceived` event; see [Webhooks](#webhooks). This package does not persist tokens: storing and retrieving `recToken` for later use is your application's responsibility (it is a stateless HTTP-client wrapper, see [ADR-0001](docs/adr/0001-laravel-http-client-over-external-sdk.md)).
+`recToken` is obtained from a `regularMode` transaction or from `verify()`, and — like the rest of the raw webhook payload — is already delivered to your application unchanged via the existing `WayForPayCallbackReceived` event; see [Webhooks](#webhooks). This package does not persist tokens: storing and retrieving `recToken` for later use is your application's responsibility (it is a stateless HTTP-client wrapper, see [ADR-0001](docs/adr/0001-laravel-http-client-over-external-sdk.md)).
 
 ### 8. P2P Credit (Payouts)
 
@@ -418,12 +420,22 @@ $response = WayForPay::p2pAccount($transfer);
 
 ### 10. Card Verification
 
-Verify a card by blocking a small amount that is automatically reversed:
+Verify a card by rendering an auto-submitting HTML form that opens WayForPay's `lookupCard` wizard directly in the cardholder's browser — no amount is charged or blocked.
+
+> **Warning:** `WayForPay::verify()` returns an HTML form, not a URL — just like [`purchase()`](#1-purchase-widget). WayForPay POSTs the browser back to `returnUrl` after the wizard completes, and delivers `recToken` to `serviceUrl` via webhook, not in any HTTP response. There is no server-to-server way to call `/verify` and get a token back directly.
 
 ```php
-$url = WayForPay::verifyCard('VERIFY_ORDER_001');
-return redirect($url);
+$html = WayForPay::verify(
+    orderReference: 'VERIFY_ORDER_001',
+    returnUrl: 'https://myshop.com/verify/return',
+    serviceUrl: 'https://myshop.com/api/wayforpay/callback',
+);
+return response($html);
 ```
+
+Use `getVerifyFormData()` instead of `verify()` for custom form rendering, the same way `getPurchaseFormData()` works for [purchase forms](#custom-form-rendering).
+
+`recToken` arrives at `serviceUrl` via the same webhook flow as any other transaction — see [Webhooks](#webhooks) — and can then be used with [`chargeWithToken()`/`holdChargeWithToken()`](#7-token-based-charging-merchant-initiated).
 
 ### 11. Check Status
 
@@ -462,6 +474,8 @@ Event::listen(WayForPayCallbackReceived::class, function ($event) {
 
 **Option B: Manual handling in a custom controller**
 
+Use `handleWebhookRequest($request)`, not `handleWebhook($request->all())`: WayForPay's callback body is raw JSON, and if the request lacks a JSON `Content-Type` header, `$request->all()` falls back to Laravel's form-urlencoded parser, which corrupts the payload — PHP replaces `.` and spaces in POST field names with `_`, so a decimal `amount` (e.g. `1.5`) breaks any attempt to recover the JSON from the field name. `handleWebhookRequest()` decodes the raw request body directly and avoids this.
+
 ```php
 use AratKruglik\WayForPay\Services\WayForPayService;
 use AratKruglik\WayForPay\Exceptions\WayForPayException;
@@ -469,7 +483,7 @@ use AratKruglik\WayForPay\Exceptions\WayForPayException;
 public function handle(Request $request, WayForPayService $service)
 {
     try {
-        $response = $service->handleWebhook($request->all());
+        $response = $service->handleWebhookRequest($request);
 
         // Process order logic...
 

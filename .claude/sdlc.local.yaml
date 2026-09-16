@@ -1,0 +1,6 @@
+post_pipeline_checks:
+  - vendor/bin/pest
+
+convention_skills_extra:
+  - php-foundation:php-conventions
+  - php-foundation:php-testing

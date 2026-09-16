@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace AratKruglik\WayForPay\Services;
 
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use AratKruglik\WayForPay\Contracts\WayForPayInterface;
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\CardToken;
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesCurrency;
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesOrderReference;
 use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
 use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
@@ -17,13 +20,20 @@ use AratKruglik\WayForPay\Exceptions\WayForPayException;
 use AratKruglik\WayForPay\Exceptions\SignatureMismatchException;
 use AratKruglik\WayForPay\Services\Concerns\HandlesApiResponse;
 use InvalidArgumentException;
+use LogicException;
 
 class WayForPayService implements WayForPayInterface
 {
     use HandlesApiResponse;
+    use ValidatesCurrency;
+    use ValidatesOrderReference;
 
-    private const PAY_URL = 'https://secure.wayforpay.com/pay';
-    private const VERIFY_URL = 'https://secure.wayforpay.com/verify';
+    // Browser form-POST endpoints: the consumer renders these as an auto-submitting
+    // HTML form in the cardholder's browser. Not machine-readable APIs.
+    private const PAY_FORM_URL = 'https://secure.wayforpay.com/pay';
+    private const VERIFY_FORM_URL = 'https://secure.wayforpay.com/verify';
+
+    // Server-to-server JSON APIs.
     private const REGULAR_API_URL = 'https://api.wayforpay.com/regularApi';
     private const PURCHASE_TIMEOUT = 49000;
     private const INVOICE_TIMEOUT = 86400;
@@ -122,9 +132,8 @@ class WayForPayService implements WayForPayInterface
         return $url;
     }
 
-    private function generateAutoSubmitForm(array $formData): string
+    private function generateAutoSubmitForm(array $formData, string $actionUrl = self::PAY_FORM_URL): string
     {
-        $payUrl = self::PAY_URL;
         $inputs = '';
 
         foreach ($formData as $key => $value) {
@@ -147,7 +156,7 @@ class WayForPayService implements WayForPayInterface
     <title>Redirecting to payment...</title>
 </head>
 <body>
-    <form id="wayforpay_form" method="POST" action="{$payUrl}" accept-charset="utf-8">
+    <form id="wayforpay_form" method="POST" action="{$actionUrl}" accept-charset="utf-8">
         {$inputs}
     </form>
     <script type="text/javascript">
@@ -373,25 +382,57 @@ HTML;
         return $this->sendRequest($data);
     }
     
-    public function verifyCard(string $orderReference, string $currency = 'UAH'): string
-    {
+    public function getVerifyFormData(
+        string $orderReference,
+        string $returnUrl,
+        ?string $serviceUrl = null,
+        string $currency = 'UAH'
+    ): array {
+        self::assertValidOrderReference($orderReference);
+        self::assertValidCurrency($currency);
+
         $data = [
             'merchantAccount' => $this->merchantAccount,
             'merchantDomainName' => $this->merchantDomain,
+            'apiVersion' => 1,
             'orderReference' => $orderReference,
             'amount' => 0,
             'currency' => $currency,
-            'apiVersion' => 1,
             'paymentSystem' => 'lookupCard',
+            'returnUrl' => $this->validateUrl($returnUrl, 'returnUrl'),
         ];
 
+        if ($serviceUrl !== null) {
+            $data['serviceUrl'] = $this->validateUrl($serviceUrl, 'serviceUrl');
+        }
+
         $data['merchantSignature'] = $this->signatureGenerator->generateForVerify($data);
-        
-        $response = $this->http->asJson()
-            ->timeout($this->timeout)
-            ->post(self::VERIFY_URL, $data);
-            
-        return $this->parseResponse($response, returnKey: 'url');
+
+        return $data;
+    }
+
+    public function verify(
+        string $orderReference,
+        string $returnUrl,
+        ?string $serviceUrl = null,
+        string $currency = 'UAH'
+    ): string {
+        return $this->generateAutoSubmitForm(
+            $this->getVerifyFormData($orderReference, $returnUrl, $serviceUrl, $currency),
+            self::VERIFY_FORM_URL
+        );
+    }
+
+    /**
+     * @deprecated Never functioned: `/verify` is a browser form-POST endpoint,
+     *             and its response carries no `url` key. Use verify() / getVerifyFormData().
+     */
+    public function verifyCard(string $orderReference, string $currency = 'UAH'): never
+    {
+        throw new LogicException(
+            'verifyCard() cannot work: POST /verify is a browser form endpoint and returns no "url". '
+            . 'Use getVerifyFormData($orderReference, $returnUrl, $serviceUrl) and submit it as an HTML form.'
+        );
     }
 
     public function suspendRecurring(string $orderReference): array
@@ -449,6 +490,11 @@ HTML;
         return $this->sendRequest($data);
     }
 
+    public function handleWebhookRequest(Request $request): array
+    {
+        return $this->handleWebhook($this->decodeWebhookPayload($request));
+    }
+
     public function handleWebhook(array $data): array
     {
         $this->validateWebhookRequiredFields($data);
@@ -456,13 +502,37 @@ HTML;
 
         WayForPayCallbackReceived::dispatch($data);
 
-        return $this->buildWebhookResponse($data['orderReference']);
+        return $this->buildWebhookResponse((string) $data['orderReference']);
+    }
+
+    private function decodeWebhookPayload(Request $request): array
+    {
+        $data = $request->all();
+
+        if (isset($data['merchantAccount'])) {
+            return $data;
+        }
+
+        $decoded = json_decode($request->getContent(), true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        $key = array_key_first($data);
+        if (is_string($key)) {
+            $decoded = json_decode($key, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return $data;
     }
 
     private function validateWebhookRequiredFields(array $data): void
     {
         foreach (self::WEBHOOK_REQUIRED_FIELDS as $field) {
-            if (!isset($data[$field]) || $data[$field] === '') {
+            if (!isset($data[$field]) || !is_scalar($data[$field]) || $data[$field] === '') {
                 throw new WayForPayException("Missing required webhook field: {$field}");
             }
         }
@@ -477,7 +547,7 @@ HTML;
 
         $expectedSignature = $this->signatureGenerator->generateForServiceUrl($signatureParams);
 
-        if (!hash_equals($expectedSignature, $data['merchantSignature'])) {
+        if (!hash_equals($expectedSignature, (string) $data['merchantSignature'])) {
             throw new SignatureMismatchException('Invalid webhook signature');
         }
     }

@@ -22,12 +22,14 @@ use Illuminate\Support\Facades\Facade;
  * @method static array cancelHold(string $orderReference, float $amount, string $currency, string $comment = 'Hold cancelled')
  * @method static array p2pCredit(string $orderReference, float $amount, string $currency, string $cardBeneficiary, ?string $rec2Token = null)
  * @method static array settle(string $orderReference, float $amount, string $currency, ?array $products = null)
- * @method static string verifyCard(string $orderReference, string $currency = 'UAH')
+ * @method static array getVerifyFormData(string $orderReference, string $returnUrl, ?string $serviceUrl = null, string $currency = 'UAH')
+ * @method static string verify(string $orderReference, string $returnUrl, ?string $serviceUrl = null, string $currency = 'UAH')
  * @method static array suspendRecurring(string $orderReference)
  * @method static array resumeRecurring(string $orderReference)
  * @method static array removeRecurring(string $orderReference)
  * @method static array p2pAccount(\AratKruglik\WayForPay\Domain\AccountTransfer $transfer)
  * @method static array handleWebhook(array $data)
+ * @method static array handleWebhookRequest(\Illuminate\Http\Request $request)
  *
  * @see \AratKruglik\WayForPay\Services\WayForPayService
  */

@@ -8,6 +8,7 @@ use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Transaction;
+use Illuminate\Http\Request;
 
 interface WayForPayInterface
 {
@@ -41,7 +42,9 @@ interface WayForPayInterface
 
     public function settle(string $orderReference, float $amount, string $currency, ?array $products = null): array;
 
-    public function verifyCard(string $orderReference, string $currency = 'UAH'): string;
+    public function getVerifyFormData(string $orderReference, string $returnUrl, ?string $serviceUrl = null, string $currency = 'UAH'): array;
+
+    public function verify(string $orderReference, string $returnUrl, ?string $serviceUrl = null, string $currency = 'UAH'): string;
 
     public function suspendRecurring(string $orderReference): array;
     
@@ -52,4 +55,6 @@ interface WayForPayInterface
     public function p2pAccount(AccountTransfer $transfer): array;
 
     public function handleWebhook(array $data): array;
+
+    public function handleWebhookRequest(Request $request): array;
 }
