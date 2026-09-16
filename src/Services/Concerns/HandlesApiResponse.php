@@ -18,7 +18,7 @@ trait HandlesApiResponse
         if ($response->failed()) {
             throw new WayForPayException(
                 message: "{$errorPrefix} request failed",
-                responseData: ['status' => $response->status()]
+                responseData: ['status' => $response->status(), 'body' => $response->body()],
             );
         }
 
@@ -39,8 +39,15 @@ trait HandlesApiResponse
 
         if ($returnKey !== null) {
             if (!isset($json[$returnKey])) {
-                throw new WayForPayException("Failed to retrieve {$returnKey} from API response");
+                throw new WayForPayException(
+                    message: "Failed to retrieve {$returnKey} from API response",
+                    reasonCode: isset($json['reasonCode'])
+                        ? ReasonCode::tryFrom((int) $json['reasonCode'])
+                        : null,
+                    responseData: $json,
+                );
             }
+
             return $json[$returnKey];
         }
 

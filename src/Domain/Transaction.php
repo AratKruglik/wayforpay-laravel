@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace AratKruglik\WayForPay\Domain;
 
+use AratKruglik\WayForPay\Domain\Concerns\ValidatesCurrency;
 use AratKruglik\WayForPay\Domain\Concerns\ValidatesOrderReference;
 use InvalidArgumentException;
 
 class Transaction
 {
     use ValidatesOrderReference;
-    private const VALID_CURRENCIES = ['UAH', 'USD', 'EUR', 'PLN', 'GBP'];
+    use ValidatesCurrency;
     public const HOLD_TIMEOUT_MIN = 60;
     public const HOLD_TIMEOUT_MAX = 1728000;
 
@@ -42,22 +43,13 @@ class Transaction
     {
         self::assertValidOrderReference($this->orderReference);
         $this->validatePositive($this->amount, 'Amount');
-        $this->validateCurrency();
+        self::assertValidCurrency($this->currency);
         $this->validatePositive($this->orderDate, 'Order date', 'Order date must be a valid Unix timestamp');
         $this->validatePositive($this->orderTimeout, 'Order timeout');
         $this->validatePositive($this->orderLifetime, 'Order lifetime');
         $this->validatePositive($this->regularAmount, 'Regular amount');
         $this->validateMinimum($this->regularCount, 'Regular count', 1);
         $this->validateRange($this->holdTimeout, 'Hold timeout', self::HOLD_TIMEOUT_MIN, self::HOLD_TIMEOUT_MAX);
-    }
-
-    private function validateCurrency(): void
-    {
-        if (!in_array($this->currency, self::VALID_CURRENCIES, true)) {
-            throw new InvalidArgumentException(
-                'Invalid currency. Supported: ' . implode(', ', self::VALID_CURRENCIES)
-            );
-        }
     }
 
     private function validatePositive(
