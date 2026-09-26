@@ -1,5 +1,22 @@
 # Upgrade Guide
 
+## 3.1 → 3.2
+
+This release adds currency exchange rates support (`CURRENCY_RATES`). See [ADR-0010](docs/adr/0010-currency-rates-result-dto-and-local-response-parsing.md) for the full rationale.
+
+### `WayForPayInterface` gains a new method
+
+`getCurrencyRates(int $orderDate, ?string $currency = null): CurrencyRates` is now part of `WayForPayInterface`. If you implement this interface directly (there are no such implementations inside this package itself), you must implement it too, or your implementation will no longer compile against the interface.
+
+```php
+use AratKruglik\WayForPay\Facades\WayForPay;
+
+$rates = WayForPay::getCurrencyRates(time());
+$usdRate = $rates->rates['USD'] ?? null;
+```
+
+See [README §12](README.md#12-currency-rates) for full usage and edge-case behavior.
+
 ## 3.0 → 3.1
 
 This release fixes the `/verify` (card verification) integration, which never worked as documented, and fixes a webhook payload-decoding bug. Both fixes required breaking `WayForPayInterface`. See [ADR-0009](docs/adr/0009-verify-is-a-browser-form-post.md) for the full rationale.

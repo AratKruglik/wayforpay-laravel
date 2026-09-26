@@ -13,12 +13,15 @@ use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Concerns\ValidatesCurrency;
 use AratKruglik\WayForPay\Domain\Concerns\ValidatesOrderReference;
+use AratKruglik\WayForPay\Domain\CurrencyRates;
 use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
+use AratKruglik\WayForPay\Enums\ReasonCode;
 use AratKruglik\WayForPay\Events\WayForPayCallbackReceived;
 use AratKruglik\WayForPay\Exceptions\WayForPayException;
 use AratKruglik\WayForPay\Exceptions\SignatureMismatchException;
 use AratKruglik\WayForPay\Services\Concerns\HandlesApiResponse;
+use Illuminate\Http\Client\Response;
 use InvalidArgumentException;
 use LogicException;
 
@@ -42,6 +45,8 @@ class WayForPayService implements WayForPayInterface
     private const WEBHOOK_SIGNATURE_FIELDS = ['merchantAccount', 'orderReference', 'amount', 'currency', 'authCode', 'cardPan', 'transactionStatus', 'reasonCode'];
     private const TRANSACTION_TYPE_AUTH = 'AUTH';
     private const TRANSACTION_TYPE_SALE = 'SALE';
+    private const TRANSACTION_TYPE_CURRENCY_RATES = 'CURRENCY_RATES';
+    private const CURRENCY_CODE_PATTERN = '/^[A-Za-z]{3}$/D';
     private const HOLD_TIMEOUT_NOT_ALLOWED_MESSAGE =
         'holdTimeout is only supported for hold (AUTH) operations. Use hold(), getHoldFormData() or holdCharge().'
         . ' For token-based holds use holdChargeWithToken().';
@@ -313,6 +318,133 @@ HTML;
         $data['merchantSignature'] = $this->signatureGenerator->generateForCheckStatus($data);
 
         return $this->sendRequest($data);
+    }
+
+    public function getCurrencyRates(int $orderDate, ?string $currency = null): CurrencyRates
+    {
+        $normalizedCurrency = $this->validateCurrencyRatesInput($orderDate, $currency);
+
+        $data = [
+            'transactionType' => self::TRANSACTION_TYPE_CURRENCY_RATES,
+            'merchantAccount' => $this->merchantAccount,
+            'apiVersion' => 1,
+            'orderDate' => $orderDate,
+        ];
+
+        if ($normalizedCurrency !== null) {
+            $data['currency'] = $normalizedCurrency;
+        }
+
+        $data['merchantSignature'] = $this->signatureGenerator->generateForCurrencyRates($data);
+
+        $response = $this->http->asJson()
+            ->timeout($this->timeout)
+            ->post($this->baseUrl, $data);
+
+        return $this->buildCurrencyRates($this->parseCurrencyRatesResponse($response), $normalizedCurrency);
+    }
+
+    private function validateCurrencyRatesInput(int $orderDate, ?string $currency): ?string
+    {
+        if ($orderDate <= 0) {
+            throw new InvalidArgumentException('orderDate must be a positive unix timestamp');
+        }
+
+        if ($currency !== null && preg_match(self::CURRENCY_CODE_PATTERN, $currency) !== 1) {
+            throw new InvalidArgumentException('Currency must be a 3-letter code');
+        }
+
+        return $currency !== null ? strtoupper($currency) : null;
+    }
+
+    private function parseCurrencyRatesResponse(Response $response): array
+    {
+        if ($response->failed()) {
+            throw new WayForPayException(
+                message: 'API request failed',
+                responseData: ['status' => $response->status(), 'body' => $response->body()],
+            );
+        }
+
+        $json = $response->json();
+
+        if (!is_array($json)) {
+            throw new WayForPayException(
+                message: 'Malformed currency rates response',
+                responseData: ['status' => $response->status(), 'body' => $response->body()],
+            );
+        }
+
+        $rawCode = $json['REASONCODE'] ?? $json['reasonCode'] ?? null;
+
+        if ($rawCode === null || (int) $rawCode !== ReasonCode::OK->value) {
+            $rawReason = $json['REASON'] ?? $json['reason'] ?? null;
+
+            throw new WayForPayException(
+                message: is_string($rawReason) && $rawReason !== '' ? $rawReason : 'Currency rates request failed',
+                reasonCode: $rawCode === null ? null : ReasonCode::tryFrom((int) $rawCode),
+                responseData: $json,
+            );
+        }
+
+        return $json;
+    }
+
+    private function buildCurrencyRates(array $json, ?string $currency): CurrencyRates
+    {
+        $rawRatesDate = $json['RATESDATE'] ?? null;
+
+        if (!is_numeric($rawRatesDate) || (int) $rawRatesDate <= 0) {
+            throw new WayForPayException(
+                message: 'Missing or invalid RATESDATE in currency rates response',
+                reasonCode: ReasonCode::OK,
+                responseData: $json,
+            );
+        }
+
+        $rates = $this->normalizeCurrencyRates($json['RATES'] ?? null, $json);
+
+        if ($currency !== null) {
+            $rates = array_key_exists($currency, $rates) ? [$currency => $rates[$currency]] : [];
+        }
+
+        try {
+            return new CurrencyRates((int) $rawRatesDate, $rates);
+        } catch (InvalidArgumentException $e) {
+            throw new WayForPayException(
+                message: 'Malformed currency rates response',
+                responseData: $json,
+                previous: $e,
+            );
+        }
+    }
+
+    private function normalizeCurrencyRates(mixed $rawRates, array $json): array
+    {
+        if ($rawRates === null) {
+            return [];
+        }
+
+        if (!is_array($rawRates)) {
+            throw new WayForPayException(
+                message: 'Invalid RATES in currency rates response',
+                responseData: $json,
+            );
+        }
+
+        $rates = [];
+        foreach ($rawRates as $code => $rate) {
+            if (!is_int($rate) && !is_float($rate)) {
+                throw new WayForPayException(
+                    message: 'Invalid RATES in currency rates response',
+                    responseData: $json,
+                );
+            }
+
+            $rates[strtoupper((string) $code)] = (float) $rate;
+        }
+
+        return $rates;
     }
 
     public function refund(string $orderReference, float $amount, string $currency, string $comment): array

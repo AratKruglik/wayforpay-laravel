@@ -67,3 +67,20 @@ test('facade resolves cancelHold', function () {
 
     expect($response['transactionStatus'])->toBe('Refunded');
 });
+
+test('facade resolves getCurrencyRates', function () {
+    Http::fake([
+        'api.wayforpay.com/api' => Http::response([
+            'REASONCODE' => 1100,
+            'REASON' => 'Ok',
+            'RATESDATE' => 1519115604,
+            'RATES' => ['USD' => 26.45],
+        ], 200),
+    ]);
+
+    $rates = WayForPay::getCurrencyRates(1519885604);
+
+    expect($rates)->toBeInstanceOf(\AratKruglik\WayForPay\Domain\CurrencyRates::class)
+        ->and($rates->ratesDate)->toBe(1519115604)
+        ->and($rates->rates)->toBe(['USD' => 26.45]);
+});

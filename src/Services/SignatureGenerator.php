@@ -60,6 +60,14 @@ class SignatureGenerator
         ]);
     }
 
+    public function generateForCurrencyRates(array $data): string
+    {
+        return $this->generate([
+            $data['merchantAccount'],
+            $data['orderDate'],
+        ]);
+    }
+
     public function generateForRemoveInvoice(array $data): string
     {
         return $this->generate([
