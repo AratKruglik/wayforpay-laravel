@@ -7,6 +7,7 @@ namespace AratKruglik\WayForPay\Contracts;
 use AratKruglik\WayForPay\Domain\AccountTransfer;
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\CardToken;
+use AratKruglik\WayForPay\Domain\CurrencyRates;
 use AratKruglik\WayForPay\Domain\Transaction;
 use Illuminate\Http\Request;
 
@@ -33,6 +34,8 @@ interface WayForPayInterface
     public function holdChargeWithToken(Transaction $transaction, CardToken $token, ?string $serviceUrl = null): array;
 
     public function checkStatus(string $orderReference): array;
+
+    public function getCurrencyRates(int $orderDate, ?string $currency = null): CurrencyRates;
 
     public function refund(string $orderReference, float $amount, string $currency, string $comment): array;
 

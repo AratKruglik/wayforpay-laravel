@@ -29,6 +29,7 @@ Supports **Laravel 11.x-13.x** and **PHP 8.2+**.
   - [P2P Account Transfer](#9-p2p-account-transfer)
   - [Card Verification](#10-card-verification)
   - [Check Status](#11-check-status)
+  - [Currency Rates](#12-currency-rates)
 - [Webhooks](#webhooks)
 - [Marketplace Integration (MMS API)](#marketplace-integration-mms-api)
   - [Partner Management](#partner-management)
@@ -443,6 +444,32 @@ Use `getVerifyFormData()` instead of `verify()` for custom form rendering, the s
 $status = WayForPay::checkStatus('ORDER_123');
 // $status['transactionStatus']
 ```
+
+### 12. Currency Rates
+
+Fetch WayForPay's currency exchange rates for a given date, optionally filtered to a single currency.
+
+```php
+$rates = WayForPay::getCurrencyRates(time());
+
+$rates->ratesDate;      // int, unix timestamp — the actual date the rates apply to
+$rates->rates;          // array<string, float>, e.g. ['USD' => 26.45, 'EUR' => 29.76, ...]
+$rates->rates['USD'];
+
+// Filtered to a single currency (case-insensitive on input, always uppercase in the result)
+$rates = WayForPay::getCurrencyRates(time(), currency: 'usd');
+$rates->rates; // ['USD' => 26.45]
+```
+
+Notes:
+
+1. `ratesDate` may differ from the requested `orderDate` — WayForPay returns the nearest available rates, not necessarily the exact date asked.
+2. Each rate is the price of **1 unit of the currency in UAH**.
+3. These are WayForPay's own rates, **not the official NBU (National Bank of Ukraine) exchange rate**.
+4. The response is **not signed** by WayForPay, unlike webhook payloads. Trust is limited to TLS for this operation.
+5. If the requested `currency` is not present in WayForPay's response, `rates` is an empty array — no exception is thrown.
+6. Caching (e.g. for repeated lookups of a past date) is left to the consuming application; this method always makes a live HTTP request.
+7. Throws `InvalidArgumentException` for an invalid `orderDate` (must be a positive unix timestamp) or `currency` (must be exactly 3 letters), and `WayForPayException` for any API-level failure (non-1100 reason code or malformed response). Network failures (timeout, DNS, connection refused) surface as Laravel's `Illuminate\Http\Client\ConnectionException`, unwrapped, as with the rest of the package.
 
 ---
 

@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array chargeWithToken(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\CardToken $token, ?string $serviceUrl = null)
  * @method static array holdChargeWithToken(\AratKruglik\WayForPay\Domain\Transaction $transaction, \AratKruglik\WayForPay\Domain\CardToken $token, ?string $serviceUrl = null)
  * @method static array checkStatus(string $orderReference)
+ * @method static \AratKruglik\WayForPay\Domain\CurrencyRates getCurrencyRates(int $orderDate, ?string $currency = null)
  * @method static array refund(string $orderReference, float $amount, string $currency, string $comment)
  * @method static array cancelHold(string $orderReference, float $amount, string $currency, string $comment = 'Hold cancelled')
  * @method static array p2pCredit(string $orderReference, float $amount, string $currency, string $cardBeneficiary, ?string $rec2Token = null)

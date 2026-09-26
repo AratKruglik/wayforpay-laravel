@@ -285,3 +285,27 @@ test('it generates correct signature for p2pAccount', function () {
 
     expect($signature)->toBe($expected);
 });
+
+test('it generates correct signature for currencyRates', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'orderDate' => 1519885604,
+    ];
+
+    $signature = $generator->generateForCurrencyRates($data);
+    $expected = hash_hmac('md5', 'test_merch_n1;1519885604', 'flk3409refn54t54t*FNJRET');
+
+    expect($signature)->toBe($expected);
+});
+
+test('currencyRates signature ignores currency field', function () {
+    $generator = new SignatureGenerator('flk3409refn54t54t*FNJRET');
+    $data = [
+        'merchantAccount' => 'test_merch_n1',
+        'orderDate' => 1519885604,
+    ];
+    $dataWithCurrency = $data + ['currency' => 'USD'];
+
+    expect($generator->generateForCurrencyRates($dataWithCurrency))->toBe($generator->generateForCurrencyRates($data));
+});

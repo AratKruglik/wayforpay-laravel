@@ -3,6 +3,7 @@
 use AratKruglik\WayForPay\Domain\Card;
 use AratKruglik\WayForPay\Domain\CardToken;
 use AratKruglik\WayForPay\Domain\Client;
+use AratKruglik\WayForPay\Domain\CurrencyRates;
 use AratKruglik\WayForPay\Domain\Product;
 use AratKruglik\WayForPay\Domain\Transaction;
 
@@ -232,4 +233,69 @@ test('cardToken debugInfo fully masks a short token without warning or leak', fu
 
     expect($debug['recToken'])->toBe('******')
         ->and($debug['recToken'])->not->toContain('abc123');
+});
+
+// CurrencyRates tests
+
+test('currencyRates dto creates correctly', function () {
+    $rates = new CurrencyRates(1519115604, ['USD' => 26.45, 'EUR' => 29.76]);
+
+    expect($rates->ratesDate)->toBe(1519115604)
+        ->and($rates->rates)->toBe(['USD' => 26.45, 'EUR' => 29.76]);
+});
+
+test('currencyRates allows an empty rates map', function () {
+    $rates = new CurrencyRates(1519115604, []);
+
+    expect($rates->rates)->toBe([]);
+});
+
+test('currencyRates throws exception for zero ratesDate', function () {
+    new CurrencyRates(0, []);
+})->throws(InvalidArgumentException::class, 'Rates date must be a positive unix timestamp');
+
+test('currencyRates throws exception for negative ratesDate', function () {
+    new CurrencyRates(-1, []);
+})->throws(InvalidArgumentException::class, 'Rates date must be a positive unix timestamp');
+
+test('currencyRates throws exception for lowercase currency key', function () {
+    new CurrencyRates(1519115604, ['usd' => 26.45]);
+})->throws(InvalidArgumentException::class, 'Currency rate key must be a 3-letter uppercase code');
+
+test('currencyRates throws exception for a 2-letter currency key', function () {
+    new CurrencyRates(1519115604, ['US' => 26.45]);
+})->throws(InvalidArgumentException::class, 'Currency rate key must be a 3-letter uppercase code');
+
+test('currencyRates throws exception for an integer-keyed rate', function () {
+    new CurrencyRates(1519115604, [0 => 26.45]);
+})->throws(InvalidArgumentException::class, 'Currency rate key must be a 3-letter uppercase code');
+
+test('currencyRates throws exception for a non-float rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => 26]);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates throws exception for a string rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => '26.45']);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates throws exception for an infinite rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => INF]);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates throws exception for a negative infinite rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => -INF]);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates throws exception for a NAN rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => NAN]);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates throws exception for a negative rate value', function () {
+    new CurrencyRates(1519115604, ['USD' => -1.0]);
+})->throws(InvalidArgumentException::class, 'Currency rate value must be a finite non-negative float');
+
+test('currencyRates accepts a zero rate value', function () {
+    $rates = new CurrencyRates(1519115604, ['USD' => 0.0]);
+
+    expect($rates->rates)->toBe(['USD' => 0.0]);
 });
